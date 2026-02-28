@@ -1,0 +1,57 @@
+version: '3.8'
+
+services:
+  # Backend API service
+  backend:
+    build:
+      context: ../server
+      dockerfile: ../docker/Dockerfile.backend
+    container_name: ai-video-enhancer-backend
+    restart: unless-stopped
+    volumes:
+      - uploads:/app/temp/uploads
+      - outputs:/app/temp/outputs
+      - processing:/app/temp/processing
+      - models:/app/models
+    environment:
+      - PYTHONUNBUFFERED=1
+    # GPU support - uncomment for CUDA
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Frontend service
+  frontend:
+    build:
+      context: ../client
+      dockerfile: ../docker/Dockerfile.frontend
+    container_name: ai-video-enhancer-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - app-network
+
+volumes:
+  uploads:
+  outputs:
+  processing:
+  models:
+
+networks:
+  app-network:
+    driver: bridge

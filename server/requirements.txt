@@ -1,0 +1,30 @@
+# FastAPI and server
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+python-multipart==0.0.6
+pydantic==2.5.3
+pydantic-settings==2.1.0
+
+# Async and background processing
+aiofiles==23.2.1
+asyncio==3.4.3
+
+# Video processing
+opencv-python-headless==4.9.0.80
+numpy==1.26.3
+pillow==10.2.0
+
+# AI Models
+torch>=2.0.0
+torchvision>=0.15.0
+basicsr>=1.4.2
+realesrgan>=0.3.0
+
+# Utilities
+tqdm==4.66.1
+requests==2.31.0
+python-dotenv==1.0.0
+psutil==5.9.8
+
+# CORS
+starlette==0.35.1

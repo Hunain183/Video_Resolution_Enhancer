@@ -23,25 +23,24 @@ if %ERRORLEVEL% neq 0 (
     exit /b 1
 )
 
-:: Create virtual environment if it doesn't exist
-if not exist "server\venv" (
-    echo [INFO] Creating Python virtual environment...
-    cd server
-    python -m venv venv
-    cd ..
-)
+:: Upgrade pip first
+echo [INFO] Upgrading pip...
+python -m pip install --upgrade pip --quiet
 
-:: Activate virtual environment and install dependencies
-echo [INFO] Installing Python dependencies...
+:: Install Python dependencies globally with extended timeout
+echo [INFO] Installing Python dependencies (this may take a while)...
 cd server
-call venv\Scripts\activate.bat
-pip install -r requirements.txt --quiet
+pip install -r requirements.txt --timeout 120 --retries 5
+if %ERRORLEVEL% neq 0 (
+    echo [WARNING] Some packages failed to install. Retrying...
+    pip install -r requirements.txt --timeout 180 --retries 3
+)
 cd ..
 
 :: Install Node.js dependencies
 echo [INFO] Installing Node.js dependencies...
 cd client
-call npm install --silent
+call npm install
 cd ..
 
 :: Create required directories
@@ -58,17 +57,18 @@ echo.
 
 :: Start backend server in a new window
 echo [INFO] Starting backend server on http://localhost:8000
-start "Backend Server" cmd /k "cd server && call venv\Scripts\activate.bat && python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
+start "Backend Server" cmd /k "cd /d %~dp0server && python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
 
-:: Wait a moment for backend to start
-timeout /t 3 /nobreak >nul
+:: Wait for backend to start
+echo [INFO] Waiting for backend to initialize...
+timeout /t 5 /nobreak >nul
 
 :: Start frontend dev server in a new window
-echo [INFO] Starting frontend server on http://localhost:5173
-start "Frontend Server" cmd /k "cd client && npm run dev"
+echo [INFO] Starting frontend server on http://localhost:3000
+start "Frontend Server" cmd /k "cd /d %~dp0client && npm run dev"
 
-:: Wait a moment for frontend to start
-timeout /t 3 /nobreak >nul
+:: Wait for frontend to start
+timeout /t 5 /nobreak >nul
 
 echo.
 echo ========================================
@@ -76,14 +76,14 @@ echo    Services Started!
 echo ========================================
 echo.
 echo Backend:  http://localhost:8000
-echo Frontend: http://localhost:5173
+echo Frontend: http://localhost:3000
 echo API Docs: http://localhost:8000/docs
 echo.
 echo Press any key to open the app in your browser...
 pause >nul
 
 :: Open browser
-start http://localhost:5173
+start http://localhost:3000
 
 echo.
 echo To stop the services, close the Backend and Frontend terminal windows.

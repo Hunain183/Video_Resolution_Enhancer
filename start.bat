@@ -4,7 +4,7 @@ echo Starting AI Video Resolution Enhancer...
 echo.
 
 :: Start backend server in a new window
-start "Backend Server" cmd /k "cd /d %~dp0server && python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
+start "Backend Server" cmd /k "cd /d %~dp0server && python -m uvicorn main:app --host 0.0.0.0 --port 8000"
 
 :: Wait for backend
 echo Waiting for backend to start...

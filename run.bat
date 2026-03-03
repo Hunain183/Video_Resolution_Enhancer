@@ -53,7 +53,7 @@ echo.
 
 :: Start backend server in a new window
 echo [INFO] Starting backend server on http://localhost:8000
-start "Backend Server" cmd /k "cd /d %~dp0server && python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
+start "Backend Server" cmd /k "cd /d %~dp0server && python -m uvicorn main:app --host 0.0.0.0 --port 8000"
 
 :: Wait for backend to start
 echo [INFO] Waiting for backend to initialize...

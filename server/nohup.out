@@ -1,0 +1,10 @@
+Real-ESRGAN not available. Install with: pip install realesrgan
+INFO:     Started server process [7484]
+INFO:     Waiting for application startup.
+2026-03-03 01:04:50,654 - main - INFO - Directories initialized
+2026-03-03 01:04:50,654 - main - INFO - AI Video Enhancement Server started
+INFO:     Application startup complete.
+ERROR:    [Errno 98] error while attempting to bind on address ('0.0.0.0', 8000): address already in use
+INFO:     Waiting for application shutdown.
+2026-03-03 01:04:50,654 - main - INFO - AI Video Enhancement Server stopped
+INFO:     Application shutdown complete.

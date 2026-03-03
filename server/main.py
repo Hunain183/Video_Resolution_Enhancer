@@ -12,12 +12,14 @@ from typing import Optional, Dict, Any
 from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Query
+from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from starlette.middleware.base import BaseHTTPMiddleware
 import logging
+import aiofiles
 
 from config import settings
 from processors.pipeline import VideoPipeline
@@ -90,13 +92,26 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS middleware
+# Increase request body size limit
+class MaxBodySizeMiddleware(BaseHTTPMiddleware):
+    def __init__(self, app, max_body_size: int = 2 * 1024 * 1024 * 1024):
+        super().__init__(app)
+        self.max_body_size = max_body_size
+
+    async def dispatch(self, request: Request, call_next):
+        request._max_body_size = self.max_body_size
+        return await call_next(request)
+
+app.add_middleware(MaxBodySizeMiddleware, max_body_size=2 * 1024 * 1024 * 1024)
+
+# CORS middleware - allow all origins for Codespaces compatibility
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,  # Must be False when using allow_origins=["*"]
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 
@@ -183,6 +198,7 @@ async def upload_video(file: UploadFile = File(...)):
     """
     Upload a video file for processing.
     Validates format and extracts video information.
+    Uses streaming to handle large files without memory issues.
     """
     # Validate file extension
     ext = Path(file.filename).suffix.lower()
@@ -192,25 +208,33 @@ async def upload_video(file: UploadFile = File(...)):
             detail=f"Unsupported format. Allowed: {list(settings.ALLOWED_EXTENSIONS)}"
         )
     
-    # Read file to check size
-    content = await file.read()
-    file_size = len(content)
-    
-    if file_size > settings.MAX_FILE_SIZE:
-        raise HTTPException(
-            status_code=413,
-            detail=f"File too large. Max size: {settings.MAX_FILE_SIZE // (1024*1024)}MB"
-        )
-    
     # Generate unique filename
     file_id = str(uuid.uuid4())[:8]
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     safe_filename = f"upload_{timestamp}_{file_id}{ext}"
     file_path = Path(settings.UPLOAD_DIR) / safe_filename
     
-    # Save file
-    with open(file_path, "wb") as f:
-        f.write(content)
+    # Stream file to disk in chunks to handle large files
+    file_size = 0
+    chunk_size = 1024 * 1024  # 1MB chunks
+    
+    try:
+        async with aiofiles.open(file_path, 'wb') as f:
+            while chunk := await file.read(chunk_size):
+                file_size += len(chunk)
+                if file_size > settings.MAX_FILE_SIZE:
+                    await f.close()
+                    file_path.unlink(missing_ok=True)
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"File too large. Max size: {settings.MAX_FILE_SIZE // (1024*1024)}MB"
+                    )
+                await f.write(chunk)
+    except HTTPException:
+        raise
+    except Exception as e:
+        file_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
     
     # Get video info
     try:
@@ -224,6 +248,118 @@ async def upload_video(file: UploadFile = File(...)):
         file_id=file_id,
         filename=safe_filename,
         file_path=str(file_path),
+        file_size=file_size,
+        video_info=video_info
+    )
+
+
+# Store for chunked uploads
+chunked_uploads: Dict[str, Dict[str, Any]] = {}
+
+
+@app.post("/upload-chunk")
+async def upload_chunk(
+    chunk: UploadFile = File(...),
+    chunk_index: int = Form(...),
+    total_chunks: int = Form(...),
+    file_id: str = Form(...),
+    filename: str = Form(...),
+    file_size: int = Form(...)
+):
+    """
+    Upload a single chunk of a large file.
+    Chunks are stored temporarily and assembled when finalized.
+    """
+    # Create chunk directory if needed
+    chunk_dir = Path(settings.TEMP_DIR) / "chunks" / file_id
+    chunk_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Save chunk
+    chunk_path = chunk_dir / f"chunk_{chunk_index:05d}"
+    content = await chunk.read()
+    
+    async with aiofiles.open(chunk_path, 'wb') as f:
+        await f.write(content)
+    
+    # Track upload progress
+    if file_id not in chunked_uploads:
+        chunked_uploads[file_id] = {
+            "filename": filename,
+            "file_size": file_size,
+            "total_chunks": total_chunks,
+            "received_chunks": set(),
+            "chunk_dir": str(chunk_dir)
+        }
+    
+    chunked_uploads[file_id]["received_chunks"].add(chunk_index)
+    
+    return {
+        "status": "chunk_received",
+        "chunk_index": chunk_index,
+        "received": len(chunked_uploads[file_id]["received_chunks"]),
+        "total": total_chunks
+    }
+
+
+@app.post("/finalize-upload", response_model=UploadResponse)
+async def finalize_upload(
+    file_id: str = Form(...),
+    filename: str = Form(...)
+):
+    """
+    Finalize a chunked upload by assembling all chunks.
+    """
+    if file_id not in chunked_uploads:
+        raise HTTPException(status_code=404, detail="Upload not found")
+    
+    upload_info = chunked_uploads[file_id]
+    chunk_dir = Path(upload_info["chunk_dir"])
+    
+    # Verify all chunks received
+    if len(upload_info["received_chunks"]) != upload_info["total_chunks"]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Missing chunks: received {len(upload_info['received_chunks'])}/{upload_info['total_chunks']}"
+        )
+    
+    # Generate final filename
+    ext = Path(filename).suffix.lower()
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    short_id = file_id[:8] if len(file_id) > 8 else file_id
+    safe_filename = f"upload_{timestamp}_{short_id}{ext}"
+    final_path = Path(settings.UPLOAD_DIR) / safe_filename
+    
+    # Assemble chunks
+    try:
+        async with aiofiles.open(final_path, 'wb') as outfile:
+            for i in range(upload_info["total_chunks"]):
+                chunk_path = chunk_dir / f"chunk_{i:05d}"
+                async with aiofiles.open(chunk_path, 'rb') as chunk_file:
+                    content = await chunk_file.read()
+                    await outfile.write(content)
+        
+        # Clean up chunks
+        shutil.rmtree(chunk_dir)
+        del chunked_uploads[file_id]
+        
+    except Exception as e:
+        final_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail=f"Failed to assemble file: {str(e)}")
+    
+    # Get video info
+    try:
+        from processors.ffmpeg_utils import get_video_info
+        video_info = get_video_info(str(final_path))
+    except Exception as e:
+        final_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail=f"Invalid video file: {str(e)}")
+    
+    file_size = final_path.stat().st_size
+    
+    return UploadResponse(
+        file_id=short_id,
+        filename=safe_filename,
+        file_path=str(final_path),
         file_size=file_size,
         video_info=video_info
     )

@@ -144,6 +144,21 @@ export default function App() {
   const [errorMessage, setErrorMessage] = useState('');
   const [result, setResult] = useState(null);
 
+  // Helper to extract error message from various error formats
+  const getErrorMessage = (err, fallback = 'An error occurred') => {
+    if (err.response?.data?.detail) {
+      const detail = err.response.data.detail;
+      if (typeof detail === 'string') return detail;
+      if (Array.isArray(detail)) {
+        return detail.map(e => e.msg || e.message || String(e)).join(', ');
+      }
+      if (typeof detail === 'object') {
+        return detail.msg || detail.message || JSON.stringify(detail);
+      }
+    }
+    return err.message || fallback;
+  };
+
   // Poll for job status
   useEffect(() => {
     if (!jobId || status !== 'processing') return;
@@ -191,7 +206,7 @@ export default function App() {
       setProgress(0);
     } catch (err) {
       setStatus('error');
-      setErrorMessage(err.response?.data?.detail || err.message || 'Upload failed');
+      setErrorMessage(getErrorMessage(err, 'Upload failed'));
     }
   }, []);
 
@@ -227,7 +242,7 @@ export default function App() {
       setJobId(job.job_id);
     } catch (err) {
       setStatus('error');
-      setErrorMessage(err.response?.data?.detail || err.message || 'Failed to start processing');
+      setErrorMessage(getErrorMessage(err, 'Failed to start processing'));
     }
   };
 

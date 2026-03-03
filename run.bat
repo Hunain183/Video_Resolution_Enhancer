@@ -23,25 +23,21 @@ if %ERRORLEVEL% neq 0 (
     exit /b 1
 )
 
-:: Upgrade pip first
-echo [INFO] Upgrading pip...
-python -m pip install --upgrade pip --quiet
-
-:: Install Python dependencies globally with extended timeout
-echo [INFO] Installing Python dependencies (this may take a while)...
-cd server
-pip install -r requirements.txt --timeout 120 --retries 5
+:: Check if dependencies are installed
+python -c "import fastapi" >nul 2>nul
 if %ERRORLEVEL% neq 0 (
-    echo [WARNING] Some packages failed to install. Retrying...
-    pip install -r requirements.txt --timeout 180 --retries 3
+    echo [INFO] Dependencies not found. Running installer...
+    echo.
+    call "%~dp0install.bat"
 )
-cd ..
 
-:: Install Node.js dependencies
-echo [INFO] Installing Node.js dependencies...
-cd client
-call npm install
-cd ..
+:: Check if node_modules exists
+if not exist "client\node_modules" (
+    echo [INFO] Node modules not found. Installing...
+    cd client
+    call npm install
+    cd ..
+)
 
 :: Create required directories
 if not exist "temp\uploads" mkdir "temp\uploads"

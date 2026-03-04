@@ -137,6 +137,7 @@ class VideoPipeline:
         output_dir: str,
         resolution: str = "original",
         upscale_factor: int = 2,
+        upscaler_algorithm: str = "realesrgan",
         target_fps: str = "original",
         denoise: bool = False,
         sharpen: bool = False,
@@ -150,6 +151,7 @@ class VideoPipeline:
             output_dir: Directory for output video
             resolution: Target resolution preset
             upscale_factor: Upscale factor (2 or 4)
+            upscaler_algorithm: Upscaling algorithm (realesrgan or lanczos)
             target_fps: Target FPS preset
             denoise: Enable denoising
             sharpen: Enable sharpening
@@ -176,6 +178,15 @@ class VideoPipeline:
             
             # Determine if upscaling is needed
             needs_upscaling = upscale_factor > 1
+            use_ai_upscaling = needs_upscaling and upscaler_algorithm == "realesrgan"
+
+            # Lanczos target resolution when user picks upscale factor with "original" resolution
+            direct_target_resolution = target_resolution
+            if upscaler_algorithm == "lanczos" and needs_upscaling and target_resolution is None:
+                direct_target_resolution = (
+                    int(video_info["width"] * upscale_factor),
+                    int(video_info["height"] * upscale_factor)
+                )
             
             # Create temp directories
             frames_dir = self.job_temp_dir / "frames"
@@ -190,7 +201,7 @@ class VideoPipeline:
             current_fps = video_info["fps"]
             
             # Stage 1: Extract frames (only if doing frame-level processing)
-            if needs_upscaling:
+            if use_ai_upscaling:
                 self._set_stage("extract")
                 extract_frames(
                     input_path,
@@ -201,7 +212,7 @@ class VideoPipeline:
                 current_frames_dir = frames_dir
             
             # Stage 2: AI Upscaling
-            if needs_upscaling:
+            if use_ai_upscaling:
                 self._set_stage("upscale")
                 
                 upscaler = create_upscaler(
@@ -225,7 +236,7 @@ class VideoPipeline:
             if needs_interpolation:
                 self._set_stage("interpolate")
                 
-                if needs_upscaling and current_frames_dir:
+                if use_ai_upscaling and current_frames_dir:
                     # Frame-based interpolation
                     interpolator = create_interpolator(
                         models_dir=self.models_dir,
@@ -279,7 +290,7 @@ class VideoPipeline:
                 self._process_direct(
                     input_path,
                     str(output_path),
-                    target_resolution,
+                    direct_target_resolution,
                     target_fps_value if needs_interpolation else None,
                     bitrate
                 )
@@ -337,6 +348,7 @@ class VideoPipeline:
                 "settings": {
                     "resolution": resolution,
                     "upscale_factor": upscale_factor,
+                    "upscaler_algorithm": upscaler_algorithm,
                     "target_fps": target_fps,
                     "denoise": denoise,
                     "sharpen": sharpen,

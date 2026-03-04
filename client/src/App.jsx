@@ -131,6 +131,7 @@ export default function App() {
   // Enhancement options
   const [resolution, setResolution] = useState('original');
   const [upscaleFactor, setUpscaleFactor] = useState('2');
+  const [upscalerAlgorithm, setUpscalerAlgorithm] = useState('realesrgan');
   const [targetFps, setTargetFps] = useState('original');
   const [denoise, setDenoise] = useState(false);
   const [sharpen, setSharpen] = useState(false);
@@ -166,14 +167,18 @@ export default function App() {
     const pollStatus = async () => {
       try {
         const jobStatus = await videoApi.getJobStatus(jobId);
+        const normalizedStatus = String(jobStatus.status || '').toLowerCase();
 
         setProgress(jobStatus.progress || 0);
         setCurrentStep(jobStatus.current_step || '');
 
-        if (jobStatus.status === 'completed') {
+        if (
+          normalizedStatus === 'completed' ||
+          (jobStatus.progress >= 100 && String(jobStatus.current_step || '').toLowerCase().includes('complete'))
+        ) {
           setStatus('completed');
-          setResult(jobStatus.result);
-        } else if (jobStatus.status === 'failed') {
+          setResult(jobStatus.result || null);
+        } else if (normalizedStatus === 'failed') {
           setStatus('error');
           setErrorMessage(jobStatus.message || 'Processing failed');
         }
@@ -183,6 +188,7 @@ export default function App() {
       }
     };
 
+    pollStatus();
     const interval = setInterval(pollStatus, 1500);
     return () => clearInterval(interval);
   }, [jobId, status]);
@@ -233,6 +239,7 @@ export default function App() {
         filePath: uploadData.file_path,
         resolution,
         upscaleFactor: parseInt(upscaleFactor),
+        upscalerAlgorithm,
         targetFps,
         denoise,
         sharpen,
@@ -249,7 +256,11 @@ export default function App() {
   // Download result
   const handleDownload = () => {
     if (!jobId) return;
-    window.open(videoApi.getDownloadUrl(jobId), '_blank');
+    const downloadUrl = videoApi.getDownloadUrl(jobId);
+    const popup = window.open(downloadUrl, '_blank');
+    if (!popup) {
+      window.location.href = downloadUrl;
+    }
   };
 
   // Reset
@@ -362,6 +373,14 @@ export default function App() {
                     <p className="text-dark-100 font-mono">{result.output?.fps} FPS</p>
                   </div>
                   <div>
+                    <span className="text-dark-400">Upscaler</span>
+                    <p className="text-dark-100 font-mono">
+                      {result.settings?.upscaler_algorithm === 'lanczos'
+                        ? 'Lanczos Fallback'
+                        : 'Real-ESRGAN'}
+                    </p>
+                  </div>
+                  <div>
                     <span className="text-dark-400">File Size</span>
                     <p className="text-dark-100 font-mono">
                       {(result.output?.file_size / (1024 * 1024)).toFixed(2)} MB
@@ -404,6 +423,17 @@ export default function App() {
                   options={[
                     { value: '2', label: '2× Upscale' },
                     { value: '4', label: '4× Upscale' },
+                  ]}
+                />
+
+                {/* Upscaling Algorithm */}
+                <Select
+                  label="Upscaling Algorithm"
+                  value={upscalerAlgorithm}
+                  onChange={setUpscalerAlgorithm}
+                  options={[
+                    { value: 'realesrgan', label: 'Real-ESRGAN (AI Quality)' },
+                    { value: 'lanczos', label: 'Lanczos Fallback (Fast/Stable)' },
                   ]}
                 />
 

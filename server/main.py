@@ -119,6 +119,7 @@ class EnhanceRequest(BaseModel):
     """Video enhancement request parameters."""
     resolution: str = Field("original", description="Target resolution: original, 1080p, 1440p, 4k")
     upscale_factor: int = Field(2, ge=1, le=4, description="Upscale factor: 2 or 4")
+    upscaler_algorithm: str = Field("realesrgan", description="Upscaler: realesrgan or lanczos")
     target_fps: str = Field("original", description="Target FPS: original, 60, 120")
     denoise: bool = Field(False, description="Enable denoising")
     sharpen: bool = Field(False, description="Enable sharpening")
@@ -369,6 +370,7 @@ async def start_enhancement(
     file_path: str = Form(...),
     resolution: str = Form("original"),
     upscale_factor: int = Form(2),
+    upscaler_algorithm: str = Form("realesrgan"),
     target_fps: str = Form("original"),
     denoise: bool = Form(False),
     sharpen: bool = Form(False),
@@ -381,6 +383,9 @@ async def start_enhancement(
     # Validate input file exists
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="Input file not found")
+
+    if upscaler_algorithm not in ["realesrgan", "lanczos"]:
+        raise HTTPException(status_code=400, detail="Invalid upscaler_algorithm. Use 'realesrgan' or 'lanczos'.")
     
     # Create job
     job_id = job_manager.create_job(
@@ -388,6 +393,7 @@ async def start_enhancement(
         settings={
             "resolution": resolution,
             "upscale_factor": upscale_factor,
+            "upscaler_algorithm": upscaler_algorithm,
             "target_fps": target_fps,
             "denoise": denoise,
             "sharpen": sharpen,

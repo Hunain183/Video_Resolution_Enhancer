@@ -101,6 +101,7 @@ export const videoApi = {
     filePath,
     resolution = 'original',
     upscaleFactor = 2,
+    upscalerAlgorithm = 'realesrgan',
     targetFps = 'original',
     denoise = false,
     sharpen = false,
@@ -110,6 +111,7 @@ export const videoApi = {
     formData.append('file_path', filePath);
     formData.append('resolution', resolution);
     formData.append('upscale_factor', upscaleFactor.toString());
+    formData.append('upscaler_algorithm', upscalerAlgorithm);
     formData.append('target_fps', targetFps);
     formData.append('denoise', denoise.toString());
     formData.append('sharpen', sharpen.toString());

@@ -11,8 +11,18 @@ from pathlib import Path
 from typing import Dict, Any, Optional, Tuple
 import logging
 
-import cv2
-from PIL import Image
+# Optional imports for fallback metadata extraction
+try:
+    import cv2
+    CV2_AVAILABLE = True
+except ImportError:
+    CV2_AVAILABLE = False
+
+try:
+    from PIL import Image
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -116,41 +126,69 @@ def _get_video_info_fallback(video_path: str) -> Dict[str, Any]:
     path = Path(video_path)
     suffix = path.suffix.lower()
 
-    if suffix == ".gif":
-        return _get_gif_info(video_path)
+    # Handle GIF files with Pillow
+    if suffix == ".gif" and PIL_AVAILABLE:
+        try:
+            return _get_gif_info(video_path)
+        except Exception as e:
+            logger.warning(f"PIL GIF fallback failed: {e}")
 
-    capture = cv2.VideoCapture(video_path)
-    if not capture.isOpened():
-        raise ValueError("Could not read media file. Install FFmpeg for broader format support.")
+    # Try OpenCV for video files
+    if CV2_AVAILABLE:
+        try:
+            capture = cv2.VideoCapture(video_path)
+            if capture.isOpened():
+                try:
+                    width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+                    height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+                    fps = float(capture.get(cv2.CAP_PROP_FPS) or 0.0)
+                    frame_count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
 
-    try:
-        width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
-        height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
-        fps = float(capture.get(cv2.CAP_PROP_FPS) or 0.0)
-        frame_count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+                    if width > 0 and height > 0:
+                        if fps <= 0:
+                            fps = 30.0
+                        duration = (frame_count / fps) if frame_count > 0 else 0.0
 
-        if fps <= 0:
-            fps = 30.0
+                        return {
+                            "width": width,
+                            "height": height,
+                            "fps": round(fps, 2),
+                            "duration": round(duration, 2),
+                            "total_frames": frame_count,
+                            "codec": "unknown",
+                            "bitrate": 0,
+                            "has_audio": False,
+                            "pixel_format": "unknown"
+                        }
+                finally:
+                    capture.release()
+        except Exception as e:
+            logger.warning(f"OpenCV fallback failed: {e}")
 
-        duration = (frame_count / fps) if frame_count > 0 else 0.0
-
-        return {
-            "width": width,
-            "height": height,
-            "fps": round(fps, 2),
-            "duration": round(duration, 2),
-            "total_frames": frame_count,
-            "codec": "unknown",
-            "bitrate": 0,
-            "has_audio": False,
-            "pixel_format": "unknown"
-        }
-    finally:
-        capture.release()
+    # Final fallback: return placeholder metadata so upload succeeds
+    # Real metadata will be extracted when FFmpeg is available during processing
+    logger.warning(f"Using placeholder metadata for {video_path} - install FFmpeg for accurate info")
+    
+    return {
+        "width": 0,
+        "height": 0,
+        "fps": 30.0,
+        "duration": 0.0,
+        "total_frames": 0,
+        "codec": "unknown",
+        "bitrate": 0,
+        "has_audio": False,
+        "pixel_format": "unknown",
+        "_placeholder": True  # Flag indicating metadata needs refresh
+    }
 
 
 def _get_gif_info(video_path: str) -> Dict[str, Any]:
     """Extract GIF metadata using Pillow."""
+    if not PIL_AVAILABLE:
+        raise RuntimeError("Pillow not available for GIF processing")
+    
+    from PIL import Image
     with Image.open(video_path) as img:
         width, height = img.size
         total_frames = getattr(img, "n_frames", 1)

@@ -24,7 +24,7 @@ if %ERRORLEVEL% neq 0 (
 )
 
 :: Check if dependencies are installed
-python -c "import fastapi" >nul 2>nul
+python -c "import fastapi, uvicorn, aiofiles" >nul 2>nul
 if %ERRORLEVEL% neq 0 (
     echo [INFO] Dependencies not found. Running installer...
     echo.
@@ -55,9 +55,22 @@ echo.
 echo [INFO] Starting backend server on http://localhost:8000
 start "Backend Server" cmd /k "cd /d %~dp0server && python -m uvicorn main:app --host 0.0.0.0 --port 8000"
 
-:: Wait for backend to start
-echo [INFO] Waiting for backend to initialize...
-timeout /t 5 /nobreak >nul
+:: Wait for backend to become healthy
+echo [INFO] Waiting for backend health check...
+set /a retries=0
+:wait_backend
+curl -s http://localhost:8000/health >nul 2>nul
+if %ERRORLEVEL% neq 0 (
+    set /a retries+=1
+    if %retries% geq 20 (
+        echo [ERROR] Backend failed to start or is not reachable at http://localhost:8000/health
+        echo Check the "Backend Server" window for the exact Python error.
+        pause
+        exit /b 1
+    )
+    timeout /t 1 /nobreak >nul
+    goto wait_backend
+)
 
 :: Start frontend dev server in a new window
 echo [INFO] Starting frontend server on http://localhost:3000

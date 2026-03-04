@@ -27,9 +27,29 @@ if %ERRORLEVEL% neq 0 (
 :: Check FFmpeg
 where ffmpeg >nul 2>nul
 if %ERRORLEVEL% neq 0 (
-    echo [WARNING] FFmpeg not found in PATH.
-    echo Video processing requires FFmpeg.
-    echo Download from: https://ffmpeg.org/download.html
+    echo [WARNING] FFmpeg not found in PATH. Attempting automatic install...
+
+    where winget >nul 2>nul
+    if %ERRORLEVEL% equ 0 (
+        echo [INFO] Installing FFmpeg via winget...
+        winget install --id Gyan.FFmpeg --accept-source-agreements --accept-package-agreements --silent
+    ) else (
+        where choco >nul 2>nul
+        if %ERRORLEVEL% equ 0 (
+            echo [INFO] Installing FFmpeg via Chocolatey...
+            choco install ffmpeg -y
+        ) else (
+            echo [WARNING] winget/choco not found for auto-install.
+        )
+    )
+
+    where ffmpeg >nul 2>nul
+    if %ERRORLEVEL% neq 0 (
+        echo [WARNING] FFmpeg still not found. Upload will work, but full processing may fail.
+        echo          Install manually from: https://ffmpeg.org/download.html
+    ) else (
+        echo [INFO] FFmpeg installed successfully.
+    )
     echo.
 )
 

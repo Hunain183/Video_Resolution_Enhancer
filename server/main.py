@@ -22,7 +22,6 @@ import logging
 import aiofiles
 
 from config import settings
-from processors.pipeline import VideoPipeline
 from processors.job_manager import JobManager, JobStatus
 
 # Configure logging
@@ -411,6 +410,13 @@ async def start_enhancement(
 async def process_video_async(job_id: str):
     """Background task for video processing."""
     try:
+        try:
+            from processors.pipeline import VideoPipeline
+        except Exception as e:
+            raise RuntimeError(
+                "AI processing dependencies are missing. Run install.bat to install torch/realesrgan packages."
+            ) from e
+
         job = job_manager.get_job(job_id)
         if not job:
             return

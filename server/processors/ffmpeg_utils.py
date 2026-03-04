@@ -11,6 +11,9 @@ from pathlib import Path
 from typing import Dict, Any, Optional, Tuple
 import logging
 
+import cv2
+from PIL import Image
+
 logger = logging.getLogger(__name__)
 
 
@@ -44,17 +47,21 @@ def get_video_info(video_path: str) -> Dict[str, Any]:
         - bitrate: Video bitrate
         - has_audio: Whether audio track exists
     """
-    cmd = [
-        get_ffprobe_path(),
-        "-v", "quiet",
-        "-print_format", "json",
-        "-show_format",
-        "-show_streams",
-        video_path
-    ]
-    
-    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-    data = json.loads(result.stdout)
+    try:
+        cmd = [
+            get_ffprobe_path(),
+            "-v", "quiet",
+            "-print_format", "json",
+            "-show_format",
+            "-show_streams",
+            video_path
+        ]
+
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        data = json.loads(result.stdout)
+    except Exception as error:
+        logger.warning(f"FFprobe unavailable for {video_path}, using fallback metadata extractor: {error}")
+        return _get_video_info_fallback(video_path)
     
     # Find video stream
     video_stream = None
@@ -102,6 +109,69 @@ def get_video_info(video_path: str) -> Dict[str, Any]:
         "has_audio": audio_stream is not None,
         "pixel_format": video_stream.get("pix_fmt", "unknown")
     }
+
+
+def _get_video_info_fallback(video_path: str) -> Dict[str, Any]:
+    """Extract basic media metadata without ffprobe (upload-time fallback)."""
+    path = Path(video_path)
+    suffix = path.suffix.lower()
+
+    if suffix == ".gif":
+        return _get_gif_info(video_path)
+
+    capture = cv2.VideoCapture(video_path)
+    if not capture.isOpened():
+        raise ValueError("Could not read media file. Install FFmpeg for broader format support.")
+
+    try:
+        width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+        height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+        fps = float(capture.get(cv2.CAP_PROP_FPS) or 0.0)
+        frame_count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+
+        if fps <= 0:
+            fps = 30.0
+
+        duration = (frame_count / fps) if frame_count > 0 else 0.0
+
+        return {
+            "width": width,
+            "height": height,
+            "fps": round(fps, 2),
+            "duration": round(duration, 2),
+            "total_frames": frame_count,
+            "codec": "unknown",
+            "bitrate": 0,
+            "has_audio": False,
+            "pixel_format": "unknown"
+        }
+    finally:
+        capture.release()
+
+
+def _get_gif_info(video_path: str) -> Dict[str, Any]:
+    """Extract GIF metadata using Pillow."""
+    with Image.open(video_path) as img:
+        width, height = img.size
+        total_frames = getattr(img, "n_frames", 1)
+
+        # Pillow stores frame duration in milliseconds
+        frame_duration_ms = img.info.get("duration", 100)
+        frame_duration_ms = frame_duration_ms if frame_duration_ms and frame_duration_ms > 0 else 100
+        fps = 1000.0 / frame_duration_ms
+        duration = (total_frames * frame_duration_ms) / 1000.0
+
+        return {
+            "width": int(width),
+            "height": int(height),
+            "fps": round(fps, 2),
+            "duration": round(duration, 2),
+            "total_frames": int(total_frames),
+            "codec": "gif",
+            "bitrate": 0,
+            "has_audio": False,
+            "pixel_format": "palette"
+        }
 
 
 def extract_frames(

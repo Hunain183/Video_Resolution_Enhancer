@@ -80,19 +80,33 @@ pip install tqdm==4.66.1 requests==2.31.0 psutil==5.9.8 --quiet
 :: Install PyTorch (largest package)
 echo [5/7] Installing PyTorch (this may take 5-10 minutes)...
 echo      Downloading ~2GB - please be patient...
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+pip install torch==2.1.2 torchvision==0.16.2 --index-url https://download.pytorch.org/whl/cu118
 if %ERRORLEVEL% neq 0 (
     echo [WARNING] CUDA version failed, trying CPU version...
-    pip install torch torchvision
+    pip install torch==2.1.2 torchvision==0.16.2 --index-url https://download.pytorch.org/whl/cpu
 )
 
 :: Install AI model packages
 echo [6/7] Installing AI model packages...
-pip install "basicsr>=1.4.2" --quiet
-pip install "realesrgan>=0.3.0" --quiet
+python -m pip install --upgrade setuptools wheel --quiet
+echo [INFO] Enforcing torchvision compatibility for Real-ESRGAN...
+pip install --force-reinstall torchvision==0.16.2 --no-cache-dir
+pip install "basicsr==1.4.2" "realesrgan==0.3.0" --no-cache-dir
 if %ERRORLEVEL% neq 0 (
-    echo [WARNING] Some AI packages may have failed. App will work with limited features.
+    echo [WARNING] Initial Real-ESRGAN install failed. Retrying with source install...
+    pip install git+https://github.com/xinntao/Real-ESRGAN.git --no-cache-dir
 )
+
+:: Verify Real-ESRGAN imports work
+python -c "from basicsr.archs.rrdbnet_arch import RRDBNet; from realesrgan import RealESRGANer; print('Real-ESRGAN import OK')" >nul 2>nul
+if %ERRORLEVEL% neq 0 (
+    echo [ERROR] Real-ESRGAN packages are still not importable in this Python environment.
+    echo [ERROR] Run this manually and share output:
+    echo        python -c "from basicsr.archs.rrdbnet_arch import RRDBNet; from realesrgan import RealESRGANer"
+    pause
+    exit /b 1
+)
+echo [INFO] Real-ESRGAN dependencies installed successfully.
 
 :: Install Node.js dependencies
 echo [7/7] Installing Node.js dependencies...

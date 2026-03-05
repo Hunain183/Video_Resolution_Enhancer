@@ -71,26 +71,31 @@ pip install starlette==0.35.1 python-dotenv==1.0.0 --quiet
 
 :: Install image/video processing
 echo [3/7] Installing image and video processing packages...
-pip install opencv-python-headless==4.9.0.80 numpy==1.26.3 pillow==10.2.0 --quiet
+pip install "numpy<2" --force-reinstall --no-cache-dir
+pip install opencv-python-headless==4.9.0.80 pillow==10.2.0 --quiet
 
 :: Install utilities
 echo [4/7] Installing utility packages...
 pip install tqdm==4.66.1 requests==2.31.0 psutil==5.9.8 --quiet
 
-:: Install PyTorch (largest package)
-echo [5/7] Installing PyTorch (this may take 5-10 minutes)...
-echo      Downloading ~2GB - please be patient...
-pip install torch==2.1.2 torchvision==0.16.2 --index-url https://download.pytorch.org/whl/cu118
+:: Install PyTorch CPU wheels
+echo [5/7] Installing PyTorch CPU wheels (this may take a few minutes)...
+pip install --force-reinstall torch==2.1.2 torchvision==0.16.2 --index-url https://download.pytorch.org/whl/cpu
 if %ERRORLEVEL% neq 0 (
-    echo [WARNING] CUDA version failed, trying CPU version...
-    pip install torch==2.1.2 torchvision==0.16.2 --index-url https://download.pytorch.org/whl/cpu
+    echo [ERROR] Failed to install PyTorch CPU wheels.
+    pause
+    exit /b 1
 )
+
+:: Ensure NumPy stays compatible with Torch/BasicSR
+pip install "numpy<2" --force-reinstall --no-cache-dir
 
 :: Install AI model packages
 echo [6/7] Installing AI model packages...
 python -m pip install --upgrade setuptools wheel --quiet
 echo [INFO] Enforcing torchvision compatibility for Real-ESRGAN...
 pip install --force-reinstall torchvision==0.16.2 --no-cache-dir
+pip install "numpy<2" --force-reinstall --no-cache-dir
 pip install "basicsr==1.4.2" "realesrgan==0.3.0" --no-cache-dir
 if %ERRORLEVEL% neq 0 (
     echo [WARNING] Initial Real-ESRGAN install failed. Retrying with source install...

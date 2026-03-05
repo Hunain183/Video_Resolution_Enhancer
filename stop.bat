@@ -10,5 +10,8 @@ for /f "tokens=5" %%a in ('netstat -aon ^| findstr :3000 ^| findstr LISTENING') 
     taskkill /F /PID %%a >nul 2>nul
 )
 
+:: Kill cloudflared tunnel process if running
+taskkill /F /IM cloudflared.exe >nul 2>nul
+
 echo Services stopped.
 pause

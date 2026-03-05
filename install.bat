@@ -56,6 +56,20 @@ if %ERRORLEVEL% neq 0 (
 echo [INFO] Python and Node.js found. Starting installation...
 echo.
 
+:: Choose PyTorch wheel type
+set "TORCH_INDEX=https://download.pytorch.org/whl/cpu"
+set "TORCH_MODE=CPU"
+echo Select PyTorch install mode:
+echo   1. CUDA (GPU acceleration)
+echo   2. CPU only
+choice /c 12 /n /m "Enter choice [1-2]: "
+if %ERRORLEVEL%==1 (
+    set "TORCH_INDEX=https://download.pytorch.org/whl/cu118"
+    set "TORCH_MODE=CUDA"
+)
+echo [INFO] Selected mode: %TORCH_MODE%
+echo.
+
 :: Upgrade pip
 echo [1/7] Upgrading pip...
 python -m pip install --upgrade pip --quiet
@@ -78,11 +92,19 @@ pip install opencv-python-headless==4.9.0.80 pillow==10.2.0 --quiet
 echo [4/7] Installing utility packages...
 pip install tqdm==4.66.1 requests==2.31.0 psutil==5.9.8 --quiet
 
-:: Install PyTorch CPU wheels
-echo [5/7] Installing PyTorch CPU wheels (this may take a few minutes)...
-pip install --force-reinstall torch==2.1.2 torchvision==0.16.2 --index-url https://download.pytorch.org/whl/cpu
+:: Install PyTorch wheels (CUDA or CPU)
+echo [5/7] Installing PyTorch %TORCH_MODE% wheels (this may take a few minutes)...
+pip install --force-reinstall torch==2.1.2 torchvision==0.16.2 --index-url %TORCH_INDEX%
 if %ERRORLEVEL% neq 0 (
-    echo [ERROR] Failed to install PyTorch CPU wheels.
+    if /I "%TORCH_MODE%"=="CUDA" (
+        echo [WARNING] CUDA wheel install failed. Falling back to CPU wheels...
+        set "TORCH_INDEX=https://download.pytorch.org/whl/cpu"
+        set "TORCH_MODE=CPU"
+        pip install --force-reinstall torch==2.1.2 torchvision==0.16.2 --index-url %TORCH_INDEX%
+    )
+)
+if %ERRORLEVEL% neq 0 (
+    echo [ERROR] Failed to install PyTorch %TORCH_MODE% wheels.
     pause
     exit /b 1
 )

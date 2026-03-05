@@ -88,8 +88,8 @@ if %ERRORLEVEL% neq 0 (
 
 :: Install AI model packages
 echo [6/7] Installing AI model packages...
-pip install basicsr>=1.4.2 --quiet
-pip install realesrgan>=0.3.0 --quiet
+pip install "basicsr>=1.4.2" --quiet
+pip install "realesrgan>=0.3.0" --quiet
 if %ERRORLEVEL% neq 0 (
     echo [WARNING] Some AI packages may have failed. App will work with limited features.
 )

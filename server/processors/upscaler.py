@@ -316,7 +316,8 @@ class FallbackUpscaler:
 def create_upscaler(
     model_name: str = "realesrgan-x4plus-anime",
     models_dir: str = "./models",
-    use_gpu: bool = True
+    use_gpu: bool = True,
+    require_realesrgan: bool = False
 ) -> "RealESRGANUpscaler | FallbackUpscaler":
     """
     Factory function to create appropriate upscaler.
@@ -326,5 +327,9 @@ def create_upscaler(
         device = "cuda" if use_gpu and torch.cuda.is_available() else "cpu"
         return RealESRGANUpscaler(model_name=model_name, models_dir=models_dir, device=device)
     else:
+        if require_realesrgan:
+            raise RuntimeError(
+                "Real-ESRGAN is not available. Install required packages: pip install \"basicsr>=1.4.2\" \"realesrgan>=0.3.0\""
+            )
         logger.warning("Real-ESRGAN not available, using Lanczos fallback")
         return FallbackUpscaler()

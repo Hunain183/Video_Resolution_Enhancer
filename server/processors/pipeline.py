@@ -19,7 +19,7 @@ from .ffmpeg_utils import (
     apply_filters,
     optimize_for_loop
 )
-from .upscaler import create_upscaler
+from .upscaler import create_upscaler, RealESRGANUpscaler, FallbackUpscaler
 from .interpolator import create_interpolator, FFmpegInterpolator
 
 logger = logging.getLogger(__name__)
@@ -179,6 +179,7 @@ class VideoPipeline:
             # Determine if upscaling is needed
             needs_upscaling = upscale_factor > 1
             use_ai_upscaling = needs_upscaling and upscaler_algorithm == "realesrgan"
+            actual_upscaler_algorithm = upscaler_algorithm
 
             # Lanczos target resolution when user picks upscale factor with "original" resolution
             direct_target_resolution = target_resolution
@@ -218,8 +219,14 @@ class VideoPipeline:
                 upscaler = create_upscaler(
                     model_name="realesrgan-x4plus-anime",
                     models_dir=self.models_dir,
-                    use_gpu=True
+                    use_gpu=True,
+                    require_realesrgan=True
                 )
+
+                if isinstance(upscaler, FallbackUpscaler):
+                    actual_upscaler_algorithm = "lanczos"
+                elif isinstance(upscaler, RealESRGANUpscaler):
+                    actual_upscaler_algorithm = "realesrgan"
                 
                 try:
                     upscaler.upscale_frames(
@@ -348,7 +355,7 @@ class VideoPipeline:
                 "settings": {
                     "resolution": resolution,
                     "upscale_factor": upscale_factor,
-                    "upscaler_algorithm": upscaler_algorithm,
+                    "upscaler_algorithm": actual_upscaler_algorithm,
                     "target_fps": target_fps,
                     "denoise": denoise,
                     "sharpen": sharpen,

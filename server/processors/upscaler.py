@@ -313,23 +313,99 @@ class FallbackUpscaler:
         pass
 
 
+class BicubicUpscaler:
+    """
+    CPU upscaler using bicubic interpolation. Fastest option, good quality.
+    """
+
+    def __init__(self, scale_factor: int = 2):
+        self.scale_factor = scale_factor
+        logger.info(f"Using Bicubic upscaler (scale={scale_factor})")
+
+    def upscale_frames(
+        self,
+        input_dir: str,
+        output_dir: str,
+        target_factor: int = 4,
+        progress_callback: Optional[Callable[[float], None]] = None,
+        max_workers: int = 4
+    ) -> int:
+        """Upscale frames using bicubic interpolation."""
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+        frame_files = sorted(glob.glob(os.path.join(input_dir, "frame_*.png")))
+        total_frames = len(frame_files)
+
+        if total_frames == 0:
+            raise ValueError("No frames found")
+
+        processed = 0
+
+        def process_frame(frame_file):
+            frame_name = os.path.basename(frame_file)
+            output_file = os.path.join(output_dir, frame_name)
+            img = Image.open(frame_file)
+            new_size = (img.width * target_factor, img.height * target_factor)
+            upscaled = img.resize(new_size, Image.BICUBIC)
+            upscaled.save(output_file, quality=95)
+            return frame_name
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(process_frame, f): f for f in frame_files}
+            for future in as_completed(futures):
+                processed += 1
+                if progress_callback:
+                    progress_callback((processed / total_frames) * 100)
+
+        return processed
+
+    def cleanup(self):
+        pass
+
+
+# Algorithm name → Real-ESRGAN model mapping
+_ALGORITHM_MODEL_MAP = {
+    "realesrgan-anime":   "realesrgan-x4plus-anime",
+    "realesrgan-general": "realesrgan-x4plus",
+    "realesrgan-x2":      "realesrgan-x2plus",
+    "realesrgan":         "realesrgan-x4plus-anime",  # legacy
+}
+
+
 def create_upscaler(
-    model_name: str = "realesrgan-x4plus-anime",
+    algorithm: str = "realesrgan-anime",
+    model_name: str = None,  # kept for back-compat, overridden by algorithm
     models_dir: str = "./models",
     use_gpu: bool = True,
     require_realesrgan: bool = False
-) -> "RealESRGANUpscaler | FallbackUpscaler":
+):
     """
-    Factory function to create appropriate upscaler.
-    Falls back to Lanczos if Real-ESRGAN not available.
+    Factory: return the appropriate upscaler for the requested algorithm.
+
+    Supported algorithms:
+        realesrgan-anime    – Real-ESRGAN anime/GIF model (best for animation)
+        realesrgan-general  – Real-ESRGAN general photo model
+        realesrgan-x2       – Real-ESRGAN 2× model (faster)
+        lanczos             – CPU Lanczos (fast, sharp)
+        bicubic             – CPU Bicubic (fastest)
     """
+    if algorithm == "bicubic":
+        return BicubicUpscaler()
+
+    if algorithm == "lanczos":
+        return FallbackUpscaler()
+
+    # Resolve algorithm to model name
+    resolved_model = _ALGORITHM_MODEL_MAP.get(algorithm, model_name or "realesrgan-x4plus-anime")
+
     if ESRGAN_AVAILABLE:
         device = "cuda" if use_gpu and torch.cuda.is_available() else "cpu"
-        return RealESRGANUpscaler(model_name=model_name, models_dir=models_dir, device=device)
+        return RealESRGANUpscaler(model_name=resolved_model, models_dir=models_dir, device=device)
     else:
         if require_realesrgan:
             raise RuntimeError(
-                "Real-ESRGAN is not available. Install required packages: pip install \"basicsr>=1.4.2\" \"realesrgan>=0.3.0\""
+                "Real-ESRGAN is not available. Install required packages: "
+                'pip install "basicsr>=1.4.2" "realesrgan>=0.3.0"'
             )
         logger.warning("Real-ESRGAN not available, using Lanczos fallback")
         return FallbackUpscaler()

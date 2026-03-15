@@ -319,6 +319,7 @@ def reassemble_video(
     resolution: Optional[Tuple[int, int]] = None,
     bitrate: str = "15M",
     codec: str = "libx265",
+    lossless: bool = False,
     progress_callback: Optional[callable] = None
 ) -> str:
     """
@@ -365,23 +366,31 @@ def reassemble_video(
         cmd.extend(["-vf", ",".join(filters)])
     
     # Video encoding settings
-    cmd.extend([
-        "-c:v", codec,
-        "-preset", "slow",
-        "-crf", "18",
-        "-b:v", bitrate,
-        "-maxrate", bitrate,
-        "-bufsize", str(int(bitrate.replace("M", "")) * 2) + "M",
-        "-pix_fmt", "yuv420p",
-        "-movflags", "+faststart"
-    ])
-    
-    # H.265 specific options
-    if codec == "libx265":
+    if lossless:
+        # Lossless H.264 – maximum quality, larger files
         cmd.extend([
-            "-tag:v", "hvc1",
-            "-x265-params", "log-level=error"
+            "-c:v", "libx264",
+            "-preset", "ultrafast",
+            "-crf", "0",
+            "-pix_fmt", "yuv420p",
         ])
+    else:
+        cmd.extend([
+            "-c:v", codec,
+            "-preset", "slow",
+            "-crf", "18",
+            "-b:v", bitrate,
+            "-maxrate", bitrate,
+            "-bufsize", str(int(bitrate.replace("M", "")) * 2) + "M",
+            "-pix_fmt", "yuv420p",
+            "-movflags", "+faststart"
+        ])
+        # H.265 specific options
+        if codec == "libx265":
+            cmd.extend([
+                "-tag:v", "hvc1",
+                "-x265-params", "log-level=error"
+            ])
     
     # Audio encoding
     if audio_path and os.path.exists(audio_path):
@@ -428,6 +437,7 @@ def apply_filters(
     output_path: str,
     denoise: bool = False,
     sharpen: bool = False,
+    lossless: bool = False,
     progress_callback: Optional[callable] = None
 ) -> str:
     """
@@ -449,14 +459,18 @@ def apply_filters(
         return output_path
     
     info = get_video_info(input_path)
+
+    if lossless:
+        encode_opts = ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "0", "-pix_fmt", "yuv420p"]
+    else:
+        encode_opts = ["-c:v", "libx265", "-preset", "slow", "-crf", "18",
+                       "-tag:v", "hvc1", "-x265-params", "log-level=error"]
     
     cmd = [
         get_ffmpeg_path(),
         "-i", input_path,
         "-vf", ",".join(filters),
-        "-c:v", "libx265",
-        "-preset", "slow",
-        "-crf", "18",
+        *encode_opts,
         "-c:a", "copy",
         "-y",
         output_path
@@ -484,6 +498,73 @@ def apply_filters(
     if process.returncode != 0:
         raise RuntimeError("Filter application failed")
     
+    return output_path
+
+
+def reverse_video(
+    input_path: str,
+    output_path: str,
+    lossless: bool = False,
+    progress_callback: Optional[callable] = None
+) -> str:
+    """
+    Reverse a video without quality degradation.
+    Uses FFmpeg's frame-accurate reverse filter.
+    For audio tracks, also applies sample-accurate audio reversal.
+    """
+    info = get_video_info(input_path)
+    total_frames = max(info["total_frames"], 1)
+
+    cmd = [get_ffmpeg_path(), "-i", input_path]
+
+    if info["has_audio"]:
+        cmd.extend([
+            "-filter_complex", "[0:v]reverse[vr];[0:a]areverse[ar]",
+            "-map", "[vr]",
+            "-map", "[ar]",
+        ])
+    else:
+        cmd.extend(["-vf", "reverse"])
+
+    if lossless:
+        cmd.extend(["-c:v", "libx264", "-preset", "ultrafast", "-crf", "0", "-pix_fmt", "yuv420p"])
+    else:
+        cmd.extend([
+            "-c:v", "libx265", "-preset", "slow", "-crf", "18",
+            "-pix_fmt", "yuv420p", "-tag:v", "hvc1",
+            "-x265-params", "log-level=error",
+        ])
+
+    if info["has_audio"]:
+        cmd.extend(["-c:a", "aac", "-b:a", "192k"])
+
+    cmd.extend(["-y", output_path])
+
+    logger.info(f"Reversing video: {input_path}")
+
+    process = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        universal_newlines=True
+    )
+
+    for line in process.stderr:
+        if "frame=" in line and progress_callback:
+            try:
+                frame_str = line.split("frame=")[1].split()[0]
+                current_frame = int(frame_str)
+                progress = min(100, (current_frame / total_frames) * 100)
+                progress_callback(progress)
+            except (IndexError, ValueError):
+                pass
+
+    process.wait()
+
+    if process.returncode != 0:
+        raise RuntimeError("Video reversal failed")
+
+    logger.info(f"Video reversed: {output_path}")
     return output_path
 
 

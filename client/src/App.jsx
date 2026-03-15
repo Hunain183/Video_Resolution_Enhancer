@@ -131,11 +131,13 @@ export default function App() {
   // Enhancement options
   const [resolution, setResolution] = useState('original');
   const [upscaleFactor, setUpscaleFactor] = useState('2');
-  const [upscalerAlgorithm, setUpscalerAlgorithm] = useState('realesrgan');
+  const [upscalerAlgorithm, setUpscalerAlgorithm] = useState('realesrgan-anime');
   const [targetFps, setTargetFps] = useState('original');
   const [denoise, setDenoise] = useState(false);
   const [sharpen, setSharpen] = useState(false);
   const [loopOptimize, setLoopOptimize] = useState(false);
+  const [reverseVideo, setReverseVideo] = useState(false);
+  const [losslessOutput, setLosslessOutput] = useState(false);
 
   // Processing state
   const [status, setStatus] = useState('idle'); // idle, uploading, processing, completed, error
@@ -243,7 +245,9 @@ export default function App() {
         targetFps,
         denoise,
         sharpen,
-        loopOptimize
+        loopOptimize,
+        reverseVideo,
+        losslessOutput,
       });
 
       setJobId(job.job_id);
@@ -375,9 +379,7 @@ export default function App() {
                   <div>
                     <span className="text-dark-400">Upscaler</span>
                     <p className="text-dark-100 font-mono">
-                      {result.settings?.upscaler_algorithm === 'lanczos'
-                        ? 'Lanczos Fallback'
-                        : 'Real-ESRGAN'}
+                      {result.settings?.upscaler_algorithm || 'realesrgan-anime'}
                     </p>
                   </div>
                   <div>
@@ -389,6 +391,14 @@ export default function App() {
                   <div>
                     <span className="text-dark-400">Processing Time</span>
                     <p className="text-dark-100 font-mono">{result.processing_time}s</p>
+                  </div>
+                  <div>
+                    <span className="text-dark-400">Reversed</span>
+                    <p className="text-dark-100 font-mono">{result.settings?.reverse_video ? 'Yes' : 'No'}</p>
+                  </div>
+                  <div>
+                    <span className="text-dark-400">Lossless</span>
+                    <p className="text-dark-100 font-mono">{result.settings?.lossless_output ? 'Yes' : 'No'}</p>
                   </div>
                 </div>
               </div>
@@ -432,8 +442,11 @@ export default function App() {
                   value={upscalerAlgorithm}
                   onChange={setUpscalerAlgorithm}
                   options={[
-                    { value: 'realesrgan', label: 'Real-ESRGAN (AI Quality)' },
-                    { value: 'lanczos', label: 'Lanczos Fallback (Fast/Stable)' },
+                    { value: 'realesrgan-anime', label: 'Real-ESRGAN Anime/GIF (Best for animation)' },
+                    { value: 'realesrgan-general', label: 'Real-ESRGAN General (Best for photos)' },
+                    { value: 'realesrgan-x2', label: 'Real-ESRGAN 2× (Faster AI)' },
+                    { value: 'lanczos', label: 'Lanczos (CPU Fast)' },
+                    { value: 'bicubic', label: 'Bicubic (CPU Fastest)' },
                   ]}
                 />
 
@@ -465,6 +478,16 @@ export default function App() {
                     label="Loop Optimization"
                     enabled={loopOptimize}
                     onChange={setLoopOptimize}
+                  />
+                  <ToggleSwitch
+                    label="Reverse Video"
+                    enabled={reverseVideo}
+                    onChange={setReverseVideo}
+                  />
+                  <ToggleSwitch
+                    label="Lossless Output"
+                    enabled={losslessOutput}
+                    onChange={setLosslessOutput}
                   />
                 </div>
               </div>

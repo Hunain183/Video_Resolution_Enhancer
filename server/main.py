@@ -119,11 +119,13 @@ class EnhanceRequest(BaseModel):
     """Video enhancement request parameters."""
     resolution: str = Field("original", description="Target resolution: original, 1080p, 1440p, 4k")
     upscale_factor: int = Field(2, ge=1, le=4, description="Upscale factor: 2 or 4")
-    upscaler_algorithm: str = Field("realesrgan", description="Upscaler: realesrgan or lanczos")
+    upscaler_algorithm: str = Field("realesrgan-anime", description="Upscaler: realesrgan-anime, realesrgan-general, realesrgan-x2, lanczos, bicubic")
     target_fps: str = Field("original", description="Target FPS: original, 60, 120")
     denoise: bool = Field(False, description="Enable denoising")
     sharpen: bool = Field(False, description="Enable sharpening")
     loop_optimize: bool = Field(False, description="Optimize for seamless looping")
+    reverse_video: bool = Field(False, description="Reverse the video")
+    lossless_output: bool = Field(False, description="Lossless encoding for maximum quality")
 
 
 class JobResponse(BaseModel):
@@ -370,11 +372,13 @@ async def start_enhancement(
     file_path: str = Form(...),
     resolution: str = Form("original"),
     upscale_factor: int = Form(2),
-    upscaler_algorithm: str = Form("realesrgan"),
+    upscaler_algorithm: str = Form("realesrgan-anime"),
     target_fps: str = Form("original"),
     denoise: bool = Form(False),
     sharpen: bool = Form(False),
-    loop_optimize: bool = Form(False)
+    loop_optimize: bool = Form(False),
+    reverse_video: bool = Form(False),
+    lossless_output: bool = Form(False),
 ):
     """
     Start video enhancement job.
@@ -384,8 +388,9 @@ async def start_enhancement(
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="Input file not found")
 
-    if upscaler_algorithm not in ["realesrgan", "lanczos"]:
-        raise HTTPException(status_code=400, detail="Invalid upscaler_algorithm. Use 'realesrgan' or 'lanczos'.")
+    valid_algorithms = {"realesrgan-anime", "realesrgan-general", "realesrgan-x2", "lanczos", "bicubic", "realesrgan"}
+    if upscaler_algorithm not in valid_algorithms:
+        raise HTTPException(status_code=400, detail=f"Invalid upscaler_algorithm. Valid options: {sorted(valid_algorithms)}")
     
     # Create job
     job_id = job_manager.create_job(
@@ -397,7 +402,9 @@ async def start_enhancement(
             "target_fps": target_fps,
             "denoise": denoise,
             "sharpen": sharpen,
-            "loop_optimize": loop_optimize
+            "loop_optimize": loop_optimize,
+            "reverse_video": reverse_video,
+            "lossless_output": lossless_output,
         }
     )
     

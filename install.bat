@@ -5,6 +5,9 @@ echo    AI Video Enhancer - Dependency Installer
 echo ========================================
 echo.
 
+setlocal EnableExtensions
+cd /d "%~dp0"
+
 :: Check Python
 where python >nul 2>nul
 if %ERRORLEVEL% neq 0 (
@@ -56,51 +59,45 @@ if %ERRORLEVEL% neq 0 (
 echo [INFO] Python and Node.js found. Starting installation...
 echo.
 
-:: Choose PyTorch wheel type
+:: Auto-detect GPU support and choose PyTorch wheel index
 set "TORCH_INDEX=https://download.pytorch.org/whl/cpu"
 set "TORCH_MODE=CPU"
-echo Select PyTorch install mode:
-echo   1. CUDA (GPU acceleration)
-echo   2. CPU only
-choice /c 12 /n /m "Enter choice [1-2]: "
-if %ERRORLEVEL%==1 (
-    set "TORCH_INDEX=https://download.pytorch.org/whl/cu118"
-    set "TORCH_MODE=CUDA"
+where nvidia-smi >nul 2>nul
+if %ERRORLEVEL% equ 0 (
+    nvidia-smi >nul 2>nul
+    if %ERRORLEVEL% equ 0 (
+        set "TORCH_INDEX=https://download.pytorch.org/whl/cu118"
+        set "TORCH_MODE=CUDA"
+    )
 )
 echo [INFO] Selected mode: %TORCH_MODE%
 echo.
 
-:: Upgrade pip
-echo [1/7] Upgrading pip...
-python -m pip install --upgrade pip --quiet
+:: Upgrade pip tooling
+echo [1/6] Upgrading pip tooling...
+python -m pip install --upgrade pip setuptools wheel --quiet
 if %ERRORLEVEL% neq 0 (
-    echo [WARNING] Failed to upgrade pip, continuing...
+    echo [WARNING] Failed to upgrade pip tooling, continuing...
 )
 
-:: Install FastAPI and server dependencies
-echo [2/7] Installing FastAPI and server packages...
-pip install fastapi==0.109.0 uvicorn[standard]==0.27.0 python-multipart==0.0.6 --quiet
-pip install pydantic==2.5.3 pydantic-settings==2.1.0 aiofiles==23.2.1 --quiet
-pip install starlette==0.35.1 python-dotenv==1.0.0 --quiet
-
-:: Install image/video processing
-echo [3/7] Installing image and video processing packages...
-pip install "numpy<2" --force-reinstall --no-cache-dir
-pip install opencv-python-headless==4.9.0.80 pillow==10.2.0 --quiet
-
-:: Install utilities
-echo [4/7] Installing utility packages...
-pip install tqdm==4.66.1 requests==2.31.0 psutil==5.9.8 --quiet
+:: Install backend dependencies from requirements file
+echo [2/6] Installing backend dependencies from server\requirements.txt...
+python -m pip install -r server\requirements.txt --no-cache-dir
+if %ERRORLEVEL% neq 0 (
+    echo [ERROR] Failed to install Python dependencies from server\requirements.txt
+    pause
+    exit /b 1
+)
 
 :: Install PyTorch wheels (CUDA or CPU)
-echo [5/7] Installing PyTorch %TORCH_MODE% wheels (this may take a few minutes)...
-pip install --force-reinstall torch==2.1.2 torchvision==0.16.2 --index-url %TORCH_INDEX%
+echo [3/6] Installing PyTorch %TORCH_MODE% wheels (this may take a few minutes)...
+python -m pip install --upgrade --force-reinstall torch==2.1.2 torchvision==0.16.2 --index-url %TORCH_INDEX%
 if %ERRORLEVEL% neq 0 (
     if /I "%TORCH_MODE%"=="CUDA" (
         echo [WARNING] CUDA wheel install failed. Falling back to CPU wheels...
         set "TORCH_INDEX=https://download.pytorch.org/whl/cpu"
         set "TORCH_MODE=CPU"
-        pip install --force-reinstall torch==2.1.2 torchvision==0.16.2 --index-url %TORCH_INDEX%
+        python -m pip install --upgrade --force-reinstall torch==2.1.2 torchvision==0.16.2 --index-url %TORCH_INDEX%
     )
 )
 if %ERRORLEVEL% neq 0 (
@@ -110,18 +107,17 @@ if %ERRORLEVEL% neq 0 (
 )
 
 :: Ensure NumPy stays compatible with Torch/BasicSR
-pip install "numpy<2" --force-reinstall --no-cache-dir
+echo [4/6] Enforcing NumPy compatibility (numpy^<2)...
+python -m pip install "numpy<2" --force-reinstall --no-cache-dir
 
 :: Install AI model packages
-echo [6/7] Installing AI model packages...
-python -m pip install --upgrade setuptools wheel --quiet
-echo [INFO] Enforcing torchvision compatibility for Real-ESRGAN...
-pip install --force-reinstall torchvision==0.16.2 --no-cache-dir
-pip install "numpy<2" --force-reinstall --no-cache-dir
-pip install "basicsr==1.4.2" "realesrgan==0.3.0" --no-cache-dir
+echo [5/6] Installing AI model packages...
+python -m pip install --force-reinstall torchvision==0.16.2 --no-cache-dir
+python -m pip install "numpy<2" --force-reinstall --no-cache-dir
+python -m pip install "basicsr==1.4.2" "realesrgan==0.3.0" --no-cache-dir
 if %ERRORLEVEL% neq 0 (
     echo [WARNING] Initial Real-ESRGAN install failed. Retrying with source install...
-    pip install git+https://github.com/xinntao/Real-ESRGAN.git --no-cache-dir
+    python -m pip install git+https://github.com/xinntao/Real-ESRGAN.git --no-cache-dir
 )
 
 :: Verify Real-ESRGAN imports work
@@ -136,10 +132,16 @@ if %ERRORLEVEL% neq 0 (
 echo [INFO] Real-ESRGAN dependencies installed successfully.
 
 :: Install Node.js dependencies
-echo [7/7] Installing Node.js dependencies...
-cd client
+echo [6/6] Installing Node.js dependencies...
+cd /d "%~dp0client"
 call npm install
-cd ..
+if %ERRORLEVEL% neq 0 (
+    echo [ERROR] Failed to install Node.js dependencies.
+    cd /d "%~dp0"
+    pause
+    exit /b 1
+)
+cd /d "%~dp0"
 
 :: Create required directories
 echo.

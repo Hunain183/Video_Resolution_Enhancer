@@ -101,11 +101,13 @@ export const videoApi = {
     filePath,
     resolution = 'original',
     upscaleFactor = 2,
-    upscalerAlgorithm = 'realesrgan',
+    upscalerAlgorithm = 'realesrgan-anime',
     targetFps = 'original',
     denoise = false,
     sharpen = false,
     loopOptimize = false,
+    reverseVideo = false,
+    losslessOutput = false,
   }) {
     const formData = new FormData();
     formData.append('file_path', filePath);
@@ -116,6 +118,8 @@ export const videoApi = {
     formData.append('denoise', denoise.toString());
     formData.append('sharpen', sharpen.toString());
     formData.append('loop_optimize', loopOptimize.toString());
+    formData.append('reverse_video', reverseVideo.toString());
+    formData.append('lossless_output', losslessOutput.toString());
 
     const response = await api.post('/enhance', formData, {
       headers: {

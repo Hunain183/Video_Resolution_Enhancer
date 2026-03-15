@@ -17,7 +17,8 @@ from .ffmpeg_utils import (
     extract_audio,
     reassemble_video,
     apply_filters,
-    optimize_for_loop
+    optimize_for_loop,
+    reverse_video as do_reverse_video,
 )
 from .upscaler import create_upscaler, RealESRGANUpscaler, FallbackUpscaler
 from .interpolator import create_interpolator, FFmpegInterpolator
@@ -87,12 +88,13 @@ class VideoPipeline:
         
         # Processing stages
         self.stages = {
-            "extract": {"weight": 10, "name": "Extracting frames"},
-            "upscale": {"weight": 50, "name": "AI upscaling"},
-            "interpolate": {"weight": 25, "name": "Frame interpolation"},
-            "reassemble": {"weight": 10, "name": "Reassembling video"},
-            "filters": {"weight": 3, "name": "Applying filters"},
-            "optimize": {"weight": 2, "name": "Loop optimization"}
+            "extract":     {"weight": 10, "name": "Extracting frames"},
+            "upscale":     {"weight": 45, "name": "AI upscaling"},
+            "interpolate": {"weight": 22, "name": "Frame interpolation"},
+            "reassemble":  {"weight": 10, "name": "Reassembling video"},
+            "filters":     {"weight": 3,  "name": "Applying filters"},
+            "reverse":     {"weight": 7,  "name": "Reversing video"},
+            "optimize":    {"weight": 3,  "name": "Loop optimization"},
         }
         
         self.current_stage = None
@@ -137,11 +139,13 @@ class VideoPipeline:
         output_dir: str,
         resolution: str = "original",
         upscale_factor: int = 2,
-        upscaler_algorithm: str = "realesrgan",
+        upscaler_algorithm: str = "realesrgan-anime",
         target_fps: str = "original",
         denoise: bool = False,
         sharpen: bool = False,
-        loop_optimize: bool = False
+        loop_optimize: bool = False,
+        reverse_video: bool = False,
+        lossless_output: bool = False,
     ) -> Dict[str, Any]:
         """
         Process video through the enhancement pipeline.
@@ -151,7 +155,7 @@ class VideoPipeline:
             output_dir: Directory for output video
             resolution: Target resolution preset
             upscale_factor: Upscale factor (2 or 4)
-            upscaler_algorithm: Upscaling algorithm (realesrgan or lanczos)
+            upscaler_algorithm: Upscaling algorithm (realesrgan-anime, realesrgan-general, realesrgan-x2, lanczos, bicubic)
             target_fps: Target FPS preset
             denoise: Enable denoising
             sharpen: Enable sharpening
@@ -217,7 +221,7 @@ class VideoPipeline:
                 self._set_stage("upscale")
                 
                 upscaler = create_upscaler(
-                    model_name="realesrgan-x4plus-anime",
+                    algorithm=upscaler_algorithm,
                     models_dir=self.models_dir,
                     use_gpu=True,
                     require_realesrgan=True
@@ -290,6 +294,7 @@ class VideoPipeline:
                     target_resolution,
                     bitrate,
                     "libx265",
+                    lossless_output,
                     lambda p: self._update_progress(p)
                 )
             else:
@@ -312,6 +317,7 @@ class VideoPipeline:
                     filtered_path,
                     denoise,
                     sharpen,
+                    lossless_output,
                     lambda p: self._update_progress(p)
                 )
                 
@@ -319,7 +325,22 @@ class VideoPipeline:
                 os.remove(output_path)
                 shutil.move(filtered_path, output_path)
             
-            # Stage 6: Loop optimization
+            # Stage 6: Reverse video
+            if reverse_video:
+                self._set_stage("reverse")
+
+                reversed_path = str(output_path).replace(".mp4", "_reversed.mp4")
+                do_reverse_video(
+                    str(output_path),
+                    reversed_path,
+                    lossless=lossless_output,
+                    progress_callback=lambda p: self._update_progress(p)
+                )
+
+                os.remove(output_path)
+                shutil.move(reversed_path, output_path)
+
+            # Stage 7: Loop optimization
             if loop_optimize:
                 self._set_stage("optimize")
                 
@@ -359,7 +380,9 @@ class VideoPipeline:
                     "target_fps": target_fps,
                     "denoise": denoise,
                     "sharpen": sharpen,
-                    "loop_optimize": loop_optimize
+                    "loop_optimize": loop_optimize,
+                    "reverse_video": reverse_video,
+                    "lossless_output": lossless_output,
                 },
                 "processing_time": round(processing_time, 2)
             }

@@ -119,7 +119,7 @@ class EnhanceRequest(BaseModel):
     """Video enhancement request parameters."""
     resolution: str = Field("original", description="Target resolution: original, 1080p, 1440p, 4k")
     upscale_factor: int = Field(2, ge=1, le=4, description="Upscale factor: 2 or 4")
-    upscaler_algorithm: str = Field("realesrgan-anime", description="Upscaler: realesrgan-anime, realesrgan-general, realesrgan-x2, lanczos, bicubic")
+    upscaler_algorithm: str = Field("realesrgan-anime", description="Upscaler: original, realesrgan-anime, realesrgan-general, realesrgan-x2, lanczos, bicubic")
     target_fps: str = Field("original", description="Target FPS: original, 60, 120")
     denoise: bool = Field(False, description="Enable denoising")
     sharpen: bool = Field(False, description="Enable sharpening")
@@ -388,7 +388,7 @@ async def start_enhancement(
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="Input file not found")
 
-    valid_algorithms = {"realesrgan-anime", "realesrgan-general", "realesrgan-x2", "lanczos", "bicubic", "realesrgan"}
+    valid_algorithms = {"original", "realesrgan-anime", "realesrgan-general", "realesrgan-x2", "lanczos", "bicubic", "realesrgan"}
     if upscaler_algorithm not in valid_algorithms:
         raise HTTPException(status_code=400, detail=f"Invalid upscaler_algorithm. Valid options: {sorted(valid_algorithms)}")
     

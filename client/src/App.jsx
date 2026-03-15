@@ -431,6 +431,7 @@ export default function App() {
                   value={upscaleFactor}
                   onChange={setUpscaleFactor}
                   options={[
+                    { value: '1', label: 'Original (No Upscale)' },
                     { value: '2', label: '2× Upscale' },
                     { value: '4', label: '4× Upscale' },
                   ]}
@@ -442,6 +443,7 @@ export default function App() {
                   value={upscalerAlgorithm}
                   onChange={setUpscalerAlgorithm}
                   options={[
+                    { value: 'original', label: 'Original (No AI Upscaling)' },
                     { value: 'realesrgan-anime', label: 'Real-ESRGAN Anime/GIF (Best for animation)' },
                     { value: 'realesrgan-general', label: 'Real-ESRGAN General (Best for photos)' },
                     { value: 'realesrgan-x2', label: 'Real-ESRGAN 2× (Faster AI)' },

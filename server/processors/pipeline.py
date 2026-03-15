@@ -20,7 +20,7 @@ from .ffmpeg_utils import (
     optimize_for_loop,
     reverse_video as do_reverse_video,
 )
-from .upscaler import create_upscaler, RealESRGANUpscaler, FallbackUpscaler
+from .upscaler import create_upscaler, FallbackUpscaler
 from .interpolator import create_interpolator, FFmpegInterpolator
 
 logger = logging.getLogger(__name__)
@@ -180,18 +180,21 @@ class VideoPipeline:
             target_fps_value = FPS_PRESETS.get(target_fps)
             needs_interpolation = target_fps_value is not None and target_fps_value > video_info["fps"]
             
-            # Determine if upscaling is needed
-            needs_upscaling = upscale_factor > 1
-            use_ai_upscaling = needs_upscaling and upscaler_algorithm == "realesrgan"
-            actual_upscaler_algorithm = upscaler_algorithm
+            # Determine if upscaling is needed.
+            # "original" algorithm explicitly skips upscaling even if factor > 1.
+            needs_upscaling = upscale_factor > 1 and upscaler_algorithm != "original"
+            frame_upscaling_algorithms = {
+                "realesrgan",
+                "realesrgan-anime",
+                "realesrgan-general",
+                "realesrgan-x2",
+                "lanczos",
+                "bicubic",
+            }
+            use_frame_upscaling = needs_upscaling and upscaler_algorithm in frame_upscaling_algorithms
+            actual_upscaler_algorithm = "original" if not needs_upscaling else upscaler_algorithm
 
-            # Lanczos target resolution when user picks upscale factor with "original" resolution
             direct_target_resolution = target_resolution
-            if upscaler_algorithm == "lanczos" and needs_upscaling and target_resolution is None:
-                direct_target_resolution = (
-                    int(video_info["width"] * upscale_factor),
-                    int(video_info["height"] * upscale_factor)
-                )
             
             # Create temp directories
             frames_dir = self.job_temp_dir / "frames"
@@ -206,7 +209,7 @@ class VideoPipeline:
             current_fps = video_info["fps"]
             
             # Stage 1: Extract frames (only if doing frame-level processing)
-            if use_ai_upscaling:
+            if use_frame_upscaling:
                 self._set_stage("extract")
                 extract_frames(
                     input_path,
@@ -217,7 +220,7 @@ class VideoPipeline:
                 current_frames_dir = frames_dir
             
             # Stage 2: AI Upscaling
-            if use_ai_upscaling:
+            if use_frame_upscaling:
                 self._set_stage("upscale")
                 
                 upscaler = create_upscaler(
@@ -227,10 +230,13 @@ class VideoPipeline:
                     require_realesrgan=True
                 )
 
-                if isinstance(upscaler, FallbackUpscaler):
+                if isinstance(upscaler, FallbackUpscaler) and upscaler_algorithm in {
+                    "realesrgan",
+                    "realesrgan-anime",
+                    "realesrgan-general",
+                    "realesrgan-x2",
+                }:
                     actual_upscaler_algorithm = "lanczos"
-                elif isinstance(upscaler, RealESRGANUpscaler):
-                    actual_upscaler_algorithm = "realesrgan"
                 
                 try:
                     upscaler.upscale_frames(
@@ -247,7 +253,7 @@ class VideoPipeline:
             if needs_interpolation:
                 self._set_stage("interpolate")
                 
-                if use_ai_upscaling and current_frames_dir:
+                if use_frame_upscaling and current_frames_dir:
                     # Frame-based interpolation
                     interpolator = create_interpolator(
                         models_dir=self.models_dir,

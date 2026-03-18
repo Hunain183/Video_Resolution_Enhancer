@@ -37,11 +37,6 @@ class Settings(BaseSettings):
     
     # Model paths
     ESRGAN_MODEL: str = "realesrgan-x4plus-anime"
-    ESRGAN_FP16: bool = True
-    ESRGAN_TILE: int | None = None
-    ESRGAN_TILE_PAD: int = 10
-    ESRGAN_KEEP_LOADED: bool = True
-    ESRGAN_REQUIRE_CUDA: bool = False
     
     class Config:
         env_file = ".env"

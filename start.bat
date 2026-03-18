@@ -3,6 +3,22 @@ title AI Video Enhancer - Quick Start
 echo Starting AI Video Resolution Enhancer...
 echo.
 
+:: If NVIDIA GPU is present but CUDA is not available in torch, fix dependencies first
+where nvidia-smi >nul 2>nul
+if %ERRORLEVEL% equ 0 (
+	python -c "import torch, sys; sys.exit(0 if torch.cuda.is_available() else 1)" >nul 2>nul
+	if %ERRORLEVEL% neq 0 (
+		echo [INFO] NVIDIA GPU detected but PyTorch CUDA is not available.
+		echo [INFO] Running install.bat to install CUDA-enabled dependencies...
+		call "%~dp0install.bat"
+		if %ERRORLEVEL% neq 0 (
+			echo [ERROR] Dependency installation failed.
+			pause
+			exit /b 1
+		)
+	)
+)
+
 :: Start backend server in a new window
 start "Backend Server" cmd /k "cd /d %~dp0server && python -m uvicorn main:app --host 0.0.0.0 --port 8000"
 

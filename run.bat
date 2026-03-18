@@ -31,6 +31,22 @@ if %ERRORLEVEL% neq 0 (
     call "%~dp0install.bat"
 )
 
+:: Validate CUDA availability when NVIDIA GPU is present
+where nvidia-smi >nul 2>nul
+if %ERRORLEVEL% equ 0 (
+    python -c "import torch, sys; sys.exit(0 if torch.cuda.is_available() else 1)" >nul 2>nul
+    if %ERRORLEVEL% neq 0 (
+        echo [INFO] NVIDIA GPU detected but current PyTorch build cannot use CUDA.
+        echo [INFO] Running installer to switch to CUDA-enabled PyTorch...
+        call "%~dp0install.bat"
+        if %ERRORLEVEL% neq 0 (
+            echo [ERROR] Failed to repair CUDA dependencies.
+            pause
+            exit /b 1
+        )
+    )
+)
+
 :: Check if node_modules exists
 if not exist "client\node_modules" (
     echo [INFO] Node modules not found. Installing...

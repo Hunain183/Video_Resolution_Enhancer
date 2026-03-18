@@ -184,7 +184,9 @@ async def health_check():
         "gpu": {
             "available": gpu_available,
             "name": gpu_name,
-            "cuda_version": torch.version.cuda if gpu_available else None
+            "cuda_version": torch.version.cuda if gpu_available else None,
+            "torch_version": torch.__version__,
+            "torch_cuda_build": torch.version.cuda
         },
         "directories": {
             "upload": Path(settings.UPLOAD_DIR).exists(),

@@ -106,6 +106,24 @@ if %ERRORLEVEL% neq 0 (
     exit /b 1
 )
 
+:: Verify torch runtime mode after installation
+python -c "import torch,sys; print('Torch:', torch.__version__, 'CUDA build:', torch.version.cuda, 'CUDA available:', torch.cuda.is_available()); sys.exit(0 if ('%TORCH_MODE%'=='CPU' or torch.cuda.is_available()) else 1)"
+if %ERRORLEVEL% neq 0 (
+    if /I "%TORCH_MODE%"=="CUDA" (
+        echo [WARNING] CUDA wheels installed but CUDA runtime is not available in Python.
+        echo [WARNING] This usually means incompatible NVIDIA driver/runtime.
+        echo [WARNING] Continuing with CPU wheels so the app remains usable.
+        set "TORCH_INDEX=https://download.pytorch.org/whl/cpu"
+        set "TORCH_MODE=CPU"
+        python -m pip install --upgrade --force-reinstall torch==2.1.2 torchvision==0.16.2 --index-url %TORCH_INDEX%
+        if %ERRORLEVEL% neq 0 (
+            echo [ERROR] Failed to install fallback CPU wheels.
+            pause
+            exit /b 1
+        )
+    )
+)
+
 :: Ensure NumPy stays compatible with Torch/BasicSR
 echo [4/6] Enforcing NumPy compatibility (numpy^<2)...
 python -m pip install "numpy<2" --force-reinstall --no-cache-dir

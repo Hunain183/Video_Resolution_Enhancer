@@ -20,6 +20,7 @@ from .ffmpeg_utils import (
     optimize_for_loop,
     reverse_video as do_reverse_video,
 )
+from config import settings
 from .upscaler import create_upscaler, FallbackUpscaler
 from .interpolator import create_interpolator, FFmpegInterpolator
 
@@ -227,7 +228,12 @@ class VideoPipeline:
                     algorithm=upscaler_algorithm,
                     models_dir=self.models_dir,
                     use_gpu=True,
-                    require_realesrgan=True
+                    require_realesrgan=True,
+                    fp16=settings.ESRGAN_FP16,
+                    tile=settings.ESRGAN_TILE,
+                    tile_pad=settings.ESRGAN_TILE_PAD,
+                    keep_loaded=settings.ESRGAN_KEEP_LOADED,
+                    require_cuda=settings.ESRGAN_REQUIRE_CUDA,
                 )
 
                 if isinstance(upscaler, FallbackUpscaler) and upscaler_algorithm in {

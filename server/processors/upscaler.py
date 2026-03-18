@@ -11,6 +11,7 @@ from PIL import Image
 from pathlib import Path
 from typing import Optional, Callable, List
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import Lock
 import logging
 
 logger = logging.getLogger(__name__)
@@ -55,7 +56,10 @@ class RealESRGANUpscaler:
         model_name: str = "realesrgan-x4plus-anime",
         models_dir: str = "./models",
         device: Optional[str] = None,
-        fp16: bool = True
+        fp16: bool = True,
+        tile: Optional[int] = None,
+        tile_pad: int = 10,
+        keep_loaded: bool = True,
     ):
         """
         Initialize Real-ESRGAN upscaler.
@@ -65,6 +69,9 @@ class RealESRGANUpscaler:
             models_dir: Directory to store/load models
             device: Device to use (cuda, cpu, or None for auto)
             fp16: Use half precision for faster inference
+            tile: Tile size for Real-ESRGAN. None = auto-tune by hardware.
+            tile_pad: Padding for tiles to reduce seam artifacts.
+            keep_loaded: Keep model resources cached for faster subsequent jobs.
         """
         self.model_name = model_name
         self.models_dir = Path(models_dir)
@@ -77,9 +84,39 @@ class RealESRGANUpscaler:
             self.device = "cuda" if torch.cuda.is_available() else "cpu"
         
         self.fp16 = fp16 and self.device == "cuda"
+        self.tile = tile
+        self.tile_pad = tile_pad
+        self.keep_loaded = keep_loaded
         self.upsampler = None
+        self.effective_tile = None
+
+        if self.device == "cuda":
+            # Benchmark mode improves throughput when frame dimensions are stable.
+            torch.backends.cudnn.benchmark = True
         
         logger.info(f"Upscaler initialized: model={model_name}, device={self.device}, fp16={self.fp16}")
+
+    def _resolve_tile_size(self) -> int:
+        """Resolve tile size from explicit value or hardware-aware defaults."""
+        if self.tile is not None:
+            return max(0, int(self.tile))
+
+        if self.device != "cuda":
+            return 200
+
+        try:
+            props = torch.cuda.get_device_properties(0)
+            vram_gb = props.total_memory / (1024 ** 3)
+
+            if vram_gb >= 16:
+                return 0
+            if vram_gb >= 10:
+                return 400
+            if vram_gb >= 6:
+                return 256
+            return 128
+        except Exception:
+            return 200
     
     def _download_model(self, model_name: str) -> str:
         """Download model if not present."""
@@ -117,20 +154,27 @@ class RealESRGANUpscaler:
         
         # Create model
         model = RRDBNet(**config["model_params"], scale=config["scale"])
+
+        self.effective_tile = self._resolve_tile_size()
         
         # Create upsampler
         self.upsampler = RealESRGANer(
             scale=config["scale"],
             model_path=model_path,
             model=model,
-            tile=400,  # Tile size for memory efficiency
-            tile_pad=10,
+            tile=self.effective_tile,
+            tile_pad=self.tile_pad,
             pre_pad=0,
             half=self.fp16,
             device=self.device
         )
-        
-        logger.info(f"Model loaded: {self.model_name}")
+
+        logger.info(
+            "Model loaded: %s (tile=%s, tile_pad=%s)",
+            self.model_name,
+            self.effective_tile,
+            self.tile_pad,
+        )
     
     @property
     def scale_factor(self) -> int:
@@ -250,6 +294,9 @@ class RealESRGANUpscaler:
     
     def cleanup(self):
         """Release model resources."""
+        if self.keep_loaded:
+            return
+
         if self.upsampler is not None:
             del self.upsampler
             self.upsampler = None
@@ -371,13 +418,21 @@ _ALGORITHM_MODEL_MAP = {
     "realesrgan":         "realesrgan-x4plus-anime",  # legacy
 }
 
+_UPSCALER_CACHE = {}
+_UPSCALER_CACHE_LOCK = Lock()
+
 
 def create_upscaler(
     algorithm: str = "realesrgan-anime",
     model_name: str = None,  # kept for back-compat, overridden by algorithm
     models_dir: str = "./models",
     use_gpu: bool = True,
-    require_realesrgan: bool = False
+    require_realesrgan: bool = False,
+    fp16: bool = True,
+    tile: Optional[int] = None,
+    tile_pad: int = 10,
+    keep_loaded: bool = True,
+    require_cuda: bool = False,
 ):
     """
     Factory: return the appropriate upscaler for the requested algorithm.
@@ -399,8 +454,42 @@ def create_upscaler(
     resolved_model = _ALGORITHM_MODEL_MAP.get(algorithm, model_name or "realesrgan-x4plus-anime")
 
     if ESRGAN_AVAILABLE:
-        device = "cuda" if use_gpu and torch.cuda.is_available() else "cpu"
-        return RealESRGANUpscaler(model_name=resolved_model, models_dir=models_dir, device=device)
+        if use_gpu:
+            if not torch.cuda.is_available():
+                if require_cuda:
+                    raise RuntimeError(
+                        "CUDA GPU is required for Real-ESRGAN, but no CUDA device was detected. "
+                        "Check NVIDIA driver/CUDA runtime or disable GPU-only mode."
+                    )
+                device = "cpu"
+            else:
+                device = "cuda"
+        else:
+            device = "cpu"
+
+        cache_key = (resolved_model, str(models_dir), device, bool(fp16), tile, int(tile_pad))
+
+        if keep_loaded:
+            with _UPSCALER_CACHE_LOCK:
+                cached = _UPSCALER_CACHE.get(cache_key)
+                if cached is not None:
+                    return cached
+
+        upscaler = RealESRGANUpscaler(
+            model_name=resolved_model,
+            models_dir=models_dir,
+            device=device,
+            fp16=fp16,
+            tile=tile,
+            tile_pad=tile_pad,
+            keep_loaded=keep_loaded,
+        )
+
+        if keep_loaded:
+            with _UPSCALER_CACHE_LOCK:
+                _UPSCALER_CACHE[cache_key] = upscaler
+
+        return upscaler
     else:
         if require_realesrgan:
             raise RuntimeError(

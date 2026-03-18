@@ -66,7 +66,7 @@ where nvidia-smi >nul 2>nul
 if %ERRORLEVEL% equ 0 (
     nvidia-smi >nul 2>nul
     if %ERRORLEVEL% equ 0 (
-        set "TORCH_INDEX=https://download.pytorch.org/whl/cu118"
+        set "TORCH_INDEX=https://download.pytorch.org/whl/cu121"
         set "TORCH_MODE=CUDA"
     )
 )
@@ -91,13 +91,13 @@ if %ERRORLEVEL% neq 0 (
 
 :: Install PyTorch wheels (CUDA or CPU)
 echo [3/6] Installing PyTorch %TORCH_MODE% wheels (this may take a few minutes)...
-python -m pip install --upgrade --force-reinstall torch==2.1.2 torchvision==0.16.2 --index-url %TORCH_INDEX%
+python -m pip install --upgrade --force-reinstall torch torchvision --index-url %TORCH_INDEX% --no-cache-dir
 if %ERRORLEVEL% neq 0 (
     if /I "%TORCH_MODE%"=="CUDA" (
         echo [WARNING] CUDA wheel install failed. Falling back to CPU wheels...
         set "TORCH_INDEX=https://download.pytorch.org/whl/cpu"
         set "TORCH_MODE=CPU"
-        python -m pip install --upgrade --force-reinstall torch==2.1.2 torchvision==0.16.2 --index-url %TORCH_INDEX%
+        python -m pip install --upgrade --force-reinstall torch torchvision --index-url %TORCH_INDEX% --no-cache-dir
     )
 )
 if %ERRORLEVEL% neq 0 (
@@ -115,7 +115,7 @@ if %ERRORLEVEL% neq 0 (
         echo [WARNING] Continuing with CPU wheels so the app remains usable.
         set "TORCH_INDEX=https://download.pytorch.org/whl/cpu"
         set "TORCH_MODE=CPU"
-        python -m pip install --upgrade --force-reinstall torch==2.1.2 torchvision==0.16.2 --index-url %TORCH_INDEX%
+        python -m pip install --upgrade --force-reinstall torch torchvision --index-url %TORCH_INDEX% --no-cache-dir
         if %ERRORLEVEL% neq 0 (
             echo [ERROR] Failed to install fallback CPU wheels.
             pause
@@ -130,7 +130,6 @@ python -m pip install "numpy<2" --force-reinstall --no-cache-dir
 
 :: Install AI model packages
 echo [5/6] Installing AI model packages...
-python -m pip install --force-reinstall torchvision==0.16.2 --no-cache-dir
 python -m pip install "numpy<2" --force-reinstall --no-cache-dir
 python -m pip install "basicsr==1.4.2" "realesrgan==0.3.0" --no-cache-dir
 if %ERRORLEVEL% neq 0 (

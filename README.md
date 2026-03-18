@@ -228,14 +228,14 @@ ESRGAN_FP16=true
 ESRGAN_TILE=
 ESRGAN_TILE_PAD=10
 ESRGAN_KEEP_LOADED=true
-ESRGAN_REQUIRE_CUDA=true
+ESRGAN_REQUIRE_CUDA=false
 ```
 
 - `ESRGAN_FP16`: Enables half precision on CUDA (faster, lower VRAM use).
 - `ESRGAN_TILE`: Empty = auto hardware-aware tile selection. Set a fixed value to prioritize stability or speed.
 - `ESRGAN_TILE_PAD`: Tile overlap padding to reduce seam artifacts.
 - `ESRGAN_KEEP_LOADED`: Reuses loaded models across jobs for smoother repeated runs.
-- `ESRGAN_REQUIRE_CUDA`: When `true`, Real-ESRGAN jobs fail fast if no CUDA GPU is detected (prevents slow CPU fallback).
+- `ESRGAN_REQUIRE_CUDA`: When `true`, Real-ESRGAN jobs fail fast if no CUDA GPU is detected. Keep `false` to allow CPU fallback.
 
 ## Troubleshooting
 

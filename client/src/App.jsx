@@ -160,6 +160,7 @@ export default function App() {
   const [errorMessage, setErrorMessage] = useState('');
   const [result, setResult] = useState(null);
   const [cpuCalibration, setCpuCalibration] = useState({ factor: 1, samples: 0 });
+  const [runtimeHealth, setRuntimeHealth] = useState(null);
 
   const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
@@ -249,6 +250,28 @@ export default function App() {
     } catch {
       // Ignore corrupt calibration cache.
     }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadHealth = async () => {
+      try {
+        const data = await videoApi.checkHealth();
+        if (!cancelled) {
+          setRuntimeHealth(data);
+        }
+      } catch {
+        if (!cancelled) {
+          setRuntimeHealth(null);
+        }
+      }
+    };
+
+    loadHealth();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -474,6 +497,22 @@ export default function App() {
     if (!profile) return null;
 
     const calibratedCpuMinutes = profile.baseCpuMinutes * cpuCalibration.factor;
+    const gpuAvailable = Boolean(runtimeHealth?.gpu?.available);
+    const configuredTile = Number(runtimeHealth?.processing?.esrgan_tile);
+
+    // Very small tile values (like 8) massively increase ESRGAN runtime on CPU.
+    let tilePenalty = 1;
+    if (upscalerAlgorithm === 'realesrgan') {
+      if (Number.isFinite(configuredTile) && configuredTile > 0) {
+        tilePenalty = Math.max(1, 200 / configuredTile);
+      }
+
+      if (!gpuAvailable) {
+        tilePenalty *= 1.6;
+      }
+    }
+
+    const adjustedCpuMinutes = calibratedCpuMinutes * tilePenalty;
 
     return {
       outputWidth: profile.outputWidth,
@@ -481,10 +520,13 @@ export default function App() {
       outputFps: profile.outputFps,
       sizeLowMb: profile.sizeLowMb,
       sizeHighMb: profile.sizeHighMb,
-      cpuLowMin: calibratedCpuMinutes * 0.7,
-      cpuHighMin: calibratedCpuMinutes * 1.35,
+      cpuLowMin: adjustedCpuMinutes * 0.7,
+      cpuHighMin: adjustedCpuMinutes * 1.35,
       gpuLowMin: profile.baseGpuMinutes * 0.7,
       gpuHighMin: profile.baseGpuMinutes * 1.35,
+      gpuAvailable,
+      configuredTile: Number.isFinite(configuredTile) ? configuredTile : null,
+      tilePenalty,
     };
   }, [
     uploadData,
@@ -500,6 +542,7 @@ export default function App() {
     losslessOutput,
     cpuCalibration.factor,
     estimateProfile,
+    runtimeHealth,
   ]);
 
   const formatSize = (mb) => {
@@ -748,10 +791,17 @@ export default function App() {
                       <div className="col-span-2">
                         <span className="text-dark-400">Estimated Time (GPU)</span>
                         <p className="text-dark-100 font-mono">
-                          {formatDuration(estimatedOutput.gpuLowMin)} - {formatDuration(estimatedOutput.gpuHighMin)}
+                          {estimatedOutput.gpuAvailable
+                            ? `${formatDuration(estimatedOutput.gpuLowMin)} - ${formatDuration(estimatedOutput.gpuHighMin)}`
+                            : 'GPU not available'}
                         </p>
                       </div>
                     </div>
+                    {estimatedOutput.configuredTile !== null && estimatedOutput.configuredTile <= 16 && upscalerAlgorithm === 'realesrgan' && (
+                      <p className="text-amber-300 text-xs">
+                        Warning: ESRGAN tile={estimatedOutput.configuredTile} is very small and can drastically increase processing time.
+                      </p>
+                    )}
                     <p className="text-dark-500 text-xs">
                       Estimates vary by content complexity, hardware, and selected options.
                     </p>

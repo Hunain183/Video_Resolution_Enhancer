@@ -128,9 +128,9 @@ class VideoPipeline:
         """Set current processing stage."""
         self.current_stage = stage
         self.stage_progress = 0
-        
-        if self.progress_callback:
-            self.progress_callback(self.stage_progress, self.stages[stage]["name"])
+
+        # Use weighted progress so stage changes do not reset visible progress to 0.
+        self._update_progress(0)
         
         logger.info(f"Pipeline stage: {stage}")
     

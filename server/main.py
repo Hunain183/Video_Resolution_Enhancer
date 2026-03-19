@@ -188,6 +188,11 @@ async def health_check():
             "torch_version": torch.__version__,
             "torch_cuda_build": torch.version.cuda
         },
+        "processing": {
+            "esrgan_tile": settings.ESRGAN_TILE,
+            "esrgan_tile_pad": settings.ESRGAN_TILE_PAD,
+            "esrgan_fp16": settings.ESRGAN_FP16,
+        },
         "directories": {
             "upload": Path(settings.UPLOAD_DIR).exists(),
             "output": Path(settings.OUTPUT_DIR).exists(),

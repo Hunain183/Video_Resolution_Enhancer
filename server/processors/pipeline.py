@@ -129,7 +129,8 @@ class VideoPipeline:
         self.current_stage = stage
         self.stage_progress = 0
 
-        # Use weighted progress so stage changes do not reset visible progress to 0.
+        # Emit weighted progress at stage start. This keeps prior completed-stage
+        # contribution instead of resetting visible progress to 0.
         self._update_progress(0)
         
         logger.info(f"Pipeline stage: {stage}")

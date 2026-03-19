@@ -137,6 +137,8 @@ class JobResponse(BaseModel):
     message: str = ""
     estimated_time: Optional[float] = None
     result: Optional[Dict[str, Any]] = None
+    processing_device: Optional[str] = None
+    effective_tile: Optional[int] = None
 
 
 class UploadResponse(BaseModel):
@@ -187,11 +189,6 @@ async def health_check():
             "cuda_version": torch.version.cuda if gpu_available else None,
             "torch_version": torch.__version__,
             "torch_cuda_build": torch.version.cuda
-        },
-        "processing": {
-            "esrgan_tile": settings.ESRGAN_TILE,
-            "esrgan_tile_pad": settings.ESRGAN_TILE_PAD,
-            "esrgan_fp16": settings.ESRGAN_FP16,
         },
         "directories": {
             "upload": Path(settings.UPLOAD_DIR).exists(),
@@ -478,6 +475,39 @@ async def process_video_async(job_id: str):
         )
 
 
+def _derive_runtime_context(job: Dict[str, Any]) -> Dict[str, Any]:
+    """Infer active processing device/tile for current job settings."""
+    settings_map = job.get("settings", {})
+    algorithm = settings_map.get("upscaler_algorithm", "original")
+
+    if algorithm == "original":
+        return {"processing_device": None, "effective_tile": None}
+
+    if algorithm == "lanczos":
+        return {"processing_device": "cpu", "effective_tile": None}
+
+    # Real-ESRGAN path: device depends on CUDA availability, and CPU forces tile=0.
+    gpu_available = False
+    try:
+        import torch
+        gpu_available = torch.cuda.is_available()
+    except Exception:
+        gpu_available = False
+
+    configured_tile = int(getattr(settings, "ESRGAN_TILE", 0) or 0)
+
+    if gpu_available:
+        return {
+            "processing_device": "gpu",
+            "effective_tile": configured_tile,
+        }
+
+    return {
+        "processing_device": "cpu",
+        "effective_tile": 0,
+    }
+
+
 @app.get("/status/{job_id}", response_model=JobResponse)
 async def get_job_status(job_id: str):
     """Get job processing status."""
@@ -486,6 +516,8 @@ async def get_job_status(job_id: str):
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     
+    runtime_context = _derive_runtime_context(job)
+
     return JobResponse(
         job_id=job_id,
         status=job["status"].value,
@@ -493,7 +525,9 @@ async def get_job_status(job_id: str):
         current_step=job.get("current_step", ""),
         message=job.get("message", ""),
         estimated_time=job.get("estimated_time"),
-        result=job.get("result")
+        result=job.get("result"),
+        processing_device=runtime_context["processing_device"],
+        effective_tile=runtime_context["effective_tile"],
     )
 
 

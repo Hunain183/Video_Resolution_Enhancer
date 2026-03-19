@@ -78,13 +78,19 @@ function Select({ label, value, onChange, options }) {
 }
 
 // Progress Bar Component
-function ProgressBar({ progress, status, currentStep }) {
+function ProgressBar({ progress, status, currentStep, processingDevice, effectiveTile }) {
   return (
     <div className="space-y-3">
       <div className="flex justify-between items-center text-sm">
         <span className="text-neon-cyan font-medium">{currentStep || status}</span>
         <span className="text-dark-300 font-mono">{progress.toFixed(2)}%</span>
       </div>
+      {(processingDevice || effectiveTile !== null) && (
+        <div className="text-xs text-dark-400 font-mono">
+          Device: {processingDevice || 'n/a'}
+          {effectiveTile !== null ? ` • Tile: ${effectiveTile}` : ''}
+        </div>
+      )}
       <div className="h-3 bg-dark-800 rounded-full overflow-hidden">
         <div
           className="h-full bg-gradient-to-r from-neon-green to-neon-cyan rounded-full transition-all duration-300 progress-animate"
@@ -157,10 +163,11 @@ export default function App() {
   const [jobId, setJobId] = useState(null);
   const [progress, setProgress] = useState(0);
   const [currentStep, setCurrentStep] = useState('');
+  const [processingDevice, setProcessingDevice] = useState(null);
+  const [effectiveTile, setEffectiveTile] = useState(null);
   const [errorMessage, setErrorMessage] = useState('');
   const [result, setResult] = useState(null);
   const [cpuCalibration, setCpuCalibration] = useState({ factor: 1, samples: 0 });
-  const [runtimeHealth, setRuntimeHealth] = useState(null);
 
   const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
@@ -253,28 +260,6 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
-
-    const loadHealth = async () => {
-      try {
-        const data = await videoApi.checkHealth();
-        if (!cancelled) {
-          setRuntimeHealth(data);
-        }
-      } catch {
-        if (!cancelled) {
-          setRuntimeHealth(null);
-        }
-      }
-    };
-
-    loadHealth();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
     const processingSec = Number(result?.processing_time);
     const input = result?.input;
     const settings = result?.settings;
@@ -358,6 +343,10 @@ export default function App() {
 
         setProgress(jobStatus.progress || 0);
         setCurrentStep(jobStatus.current_step || '');
+        setProcessingDevice(jobStatus.processing_device || null);
+        setEffectiveTile(
+          Number.isFinite(jobStatus.effective_tile) ? jobStatus.effective_tile : null
+        );
 
         if (
           normalizedStatus === 'completed' ||
@@ -419,6 +408,8 @@ export default function App() {
     setStatus('processing');
     setProgress(0);
     setCurrentStep('Starting');
+    setProcessingDevice(null);
+    setEffectiveTile(null);
     setErrorMessage('');
 
     try {
@@ -462,6 +453,8 @@ export default function App() {
     setStatus('idle');
     setProgress(0);
     setCurrentStep('');
+    setProcessingDevice(null);
+    setEffectiveTile(null);
     setErrorMessage('');
     setResult(null);
   };
@@ -496,23 +489,11 @@ export default function App() {
 
     if (!profile) return null;
 
-    const calibratedCpuMinutes = profile.baseCpuMinutes * cpuCalibration.factor;
-    const gpuAvailable = Boolean(runtimeHealth?.gpu?.available);
-    const configuredTile = Number(runtimeHealth?.processing?.esrgan_tile);
+    const coldStartPenalty = cpuCalibration.samples === 0 && upscalerAlgorithm === 'realesrgan' ? 2.5 : 1;
+    const calibratedCpuMinutes = profile.baseCpuMinutes * cpuCalibration.factor * coldStartPenalty;
 
-    // Very small tile values (like 8) massively increase ESRGAN runtime on CPU.
-    let tilePenalty = 1;
-    if (upscalerAlgorithm === 'realesrgan') {
-      if (Number.isFinite(configuredTile) && configuredTile > 0) {
-        tilePenalty = Math.max(1, 200 / configuredTile);
-      }
-
-      if (!gpuAvailable) {
-        tilePenalty *= 1.6;
-      }
-    }
-
-    const adjustedCpuMinutes = calibratedCpuMinutes * tilePenalty;
+    const cpuLowMultiplier = cpuCalibration.samples === 0 ? 0.5 : (cpuCalibration.samples < 3 ? 0.6 : 0.7);
+    const cpuHighMultiplier = cpuCalibration.samples === 0 ? 6.0 : (cpuCalibration.samples < 3 ? 3.0 : 1.35);
 
     return {
       outputWidth: profile.outputWidth,
@@ -520,13 +501,10 @@ export default function App() {
       outputFps: profile.outputFps,
       sizeLowMb: profile.sizeLowMb,
       sizeHighMb: profile.sizeHighMb,
-      cpuLowMin: adjustedCpuMinutes * 0.7,
-      cpuHighMin: adjustedCpuMinutes * 1.35,
+      cpuLowMin: calibratedCpuMinutes * cpuLowMultiplier,
+      cpuHighMin: calibratedCpuMinutes * cpuHighMultiplier,
       gpuLowMin: profile.baseGpuMinutes * 0.7,
       gpuHighMin: profile.baseGpuMinutes * 1.35,
-      gpuAvailable,
-      configuredTile: Number.isFinite(configuredTile) ? configuredTile : null,
-      tilePenalty,
     };
   }, [
     uploadData,
@@ -542,7 +520,6 @@ export default function App() {
     losslessOutput,
     cpuCalibration.factor,
     estimateProfile,
-    runtimeHealth,
   ]);
 
   const formatSize = (mb) => {
@@ -791,17 +768,10 @@ export default function App() {
                       <div className="col-span-2">
                         <span className="text-dark-400">Estimated Time (GPU)</span>
                         <p className="text-dark-100 font-mono">
-                          {estimatedOutput.gpuAvailable
-                            ? `${formatDuration(estimatedOutput.gpuLowMin)} - ${formatDuration(estimatedOutput.gpuHighMin)}`
-                            : 'GPU not available'}
+                          {formatDuration(estimatedOutput.gpuLowMin)} - {formatDuration(estimatedOutput.gpuHighMin)}
                         </p>
                       </div>
                     </div>
-                    {estimatedOutput.configuredTile !== null && estimatedOutput.configuredTile <= 16 && upscalerAlgorithm === 'realesrgan' && (
-                      <p className="text-amber-300 text-xs">
-                        Warning: ESRGAN tile={estimatedOutput.configuredTile} is very small and can drastically increase processing time.
-                      </p>
-                    )}
                     <p className="text-dark-500 text-xs">
                       Estimates vary by content complexity, hardware, and selected options.
                     </p>
@@ -820,6 +790,8 @@ export default function App() {
                   progress={progress}
                   status={status}
                   currentStep={currentStep}
+                  processingDevice={processingDevice}
+                  effectiveTile={effectiveTile}
                 />
               </div>
             )}

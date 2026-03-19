@@ -153,6 +153,14 @@ class RealESRGANUpscaler:
         
         config = self.MODELS[self.model_name]
         model_path = self._download_model(self.model_name)
+
+        # Tiling is mainly a GPU-memory fallback. On CPU, very small tiles can be
+        # dramatically slower and make progress appear stuck for long periods.
+        if self.device != "cuda" and self.tile > 0:
+            logger.warning(
+                f"CPU mode detected with tile={self.tile}; forcing tile=0 for performance"
+            )
+            self.tile = 0
         
         # Create model
         model = RRDBNet(**config["model_params"], scale=config["scale"])

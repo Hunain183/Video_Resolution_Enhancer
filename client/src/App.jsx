@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { videoApi } from './api';
 
@@ -123,6 +123,19 @@ function VideoInfo({ info }) {
 
 // Main App Component
 export default function App() {
+  const ESTIMATOR_CALIBRATION_KEY = 'videoEnhancerEstimatorCalibrationV1';
+
+  const RESOLUTION_MAP = {
+    '1080p': [1920, 1080],
+    '1440p': [2560, 1440],
+    '4k': [3840, 2160],
+  };
+
+  const TARGET_FPS_MAP = {
+    '60': 60,
+    '120': 120,
+  };
+
   // State
   const [file, setFile] = useState(null);
   const [uploadData, setUploadData] = useState(null);
@@ -146,6 +159,155 @@ export default function App() {
   const [currentStep, setCurrentStep] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [result, setResult] = useState(null);
+  const [cpuCalibration, setCpuCalibration] = useState({ factor: 1, samples: 0 });
+
+  const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+
+  const estimateProfile = useCallback((input, options) => {
+    const inputWidth = Number(input.width) || 0;
+    const inputHeight = Number(input.height) || 0;
+    const inputFps = Number(input.fps) || 30;
+    const durationSec = Number(input.duration) || 0;
+    const inputSizeMb = Number(input.sizeMb) || 0;
+
+    if (!inputWidth || !inputHeight || !durationSec || !inputSizeMb) {
+      return null;
+    }
+
+    let outputWidth = inputWidth;
+    let outputHeight = inputHeight;
+
+    const upscaleMultiplier = Math.max(1, Number(options.upscaleFactor) || 1);
+    const aiUpscaleEnabled = options.upscalerAlgorithm === 'realesrgan' && upscaleMultiplier > 1;
+
+    if (aiUpscaleEnabled) {
+      outputWidth = Math.round(outputWidth * upscaleMultiplier);
+      outputHeight = Math.round(outputHeight * upscaleMultiplier);
+    }
+
+    const targetResolution = RESOLUTION_MAP[options.resolution];
+    if (targetResolution) {
+      [outputWidth, outputHeight] = targetResolution;
+    }
+
+    const selectedFps = TARGET_FPS_MAP[options.targetFps];
+    const outputFps = selectedFps && selectedFps > inputFps ? selectedFps : inputFps;
+
+    const pixelRatio = (outputWidth * outputHeight) / (inputWidth * inputHeight);
+    const fpsRatio = outputFps / inputFps;
+    const interpolationEnabled = outputFps > inputFps;
+    const filterCount = Number(options.denoise) + Number(options.sharpen) + Number(options.loopOptimize) + Number(options.reverseVideo);
+
+    let sizeLowMb;
+    let sizeHighMb;
+
+    if (options.losslessOutput) {
+      sizeLowMb = inputSizeMb * Math.max(3.0, pixelRatio * fpsRatio * 3.0);
+      sizeHighMb = inputSizeMb * Math.max(8.0, pixelRatio * fpsRatio * 10.0);
+    } else {
+      sizeLowMb = inputSizeMb * Math.max(0.7, pixelRatio * fpsRatio * 0.8);
+      sizeHighMb = inputSizeMb * Math.max(1.6, pixelRatio * fpsRatio * 2.2);
+    }
+
+    const cpuRealtimeFactor = (
+      (aiUpscaleEnabled ? 25 * upscaleMultiplier : 1.4) *
+      (interpolationEnabled ? 2.4 * fpsRatio : 1.0) *
+      (options.losslessOutput ? 0.95 : 1.05) *
+      (1 + filterCount * 0.15)
+    );
+
+    const gpuRealtimeFactor = (
+      (aiUpscaleEnabled ? 2.8 * upscaleMultiplier : 0.8) *
+      (interpolationEnabled ? 1.7 * fpsRatio : 1.0) *
+      (options.losslessOutput ? 0.9 : 1.0) *
+      (1 + filterCount * 0.12)
+    );
+
+    return {
+      outputWidth,
+      outputHeight,
+      outputFps,
+      sizeLowMb,
+      sizeHighMb,
+      baseCpuMinutes: (durationSec * cpuRealtimeFactor) / 60,
+      baseGpuMinutes: (durationSec * gpuRealtimeFactor) / 60,
+    };
+  }, [RESOLUTION_MAP, TARGET_FPS_MAP]);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(ESTIMATOR_CALIBRATION_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      const factor = Number(parsed?.factor);
+      const samples = Number(parsed?.samples);
+      if (!Number.isFinite(factor) || factor <= 0) return;
+      setCpuCalibration({
+        factor: clamp(factor, 0.25, 4),
+        samples: Number.isFinite(samples) && samples > 0 ? Math.floor(samples) : 0,
+      });
+    } catch {
+      // Ignore corrupt calibration cache.
+    }
+  }, []);
+
+  useEffect(() => {
+    const processingSec = Number(result?.processing_time);
+    const input = result?.input;
+    const settings = result?.settings;
+
+    if (!result || !input || !settings || !Number.isFinite(processingSec) || processingSec <= 0) {
+      return;
+    }
+
+    const profile = estimateProfile(
+      {
+        width: input.width,
+        height: input.height,
+        fps: input.fps,
+        duration: input.duration,
+        sizeMb: Number(file?.size || uploadData?.file_size || 0) / (1024 * 1024),
+      },
+      {
+        resolution: settings.resolution,
+        upscaleFactor: settings.upscale_factor,
+        upscalerAlgorithm: settings.upscaler_algorithm,
+        targetFps: settings.target_fps,
+        denoise: settings.denoise,
+        sharpen: settings.sharpen,
+        loopOptimize: settings.loop_optimize,
+        reverseVideo: settings.reverse_video,
+        losslessOutput: settings.lossless_output,
+      }
+    );
+
+    if (!profile || profile.baseCpuMinutes <= 0) return;
+
+    const actualMinutes = processingSec / 60;
+    const rawFactor = actualMinutes / profile.baseCpuMinutes;
+    const measuredFactor = clamp(rawFactor, 0.2, 5);
+
+    setCpuCalibration((prev) => {
+      const nextSamples = prev.samples + 1;
+      const alpha = 0.35;
+      const blended = prev.samples > 0
+        ? (prev.factor * (1 - alpha)) + (measuredFactor * alpha)
+        : measuredFactor;
+
+      const next = {
+        factor: clamp(blended, 0.25, 4),
+        samples: nextSamples,
+      };
+
+      try {
+        window.localStorage.setItem(ESTIMATOR_CALIBRATION_KEY, JSON.stringify(next));
+      } catch {
+        // Ignore storage failures.
+      }
+
+      return next;
+    });
+  }, [result, file, uploadData, estimateProfile]);
 
   // Helper to extract error message from various error formats
   const getErrorMessage = (err, fallback = 'An error occurred') => {
@@ -283,6 +445,73 @@ export default function App() {
 
   const isProcessing = status === 'processing' || status === 'uploading';
   const canEnhance = uploadData && status === 'idle';
+
+  const estimatedOutput = useMemo(() => {
+    const info = uploadData?.video_info;
+    if (!info) return null;
+
+    const profile = estimateProfile(
+      {
+        width: info.width,
+        height: info.height,
+        fps: info.fps,
+        duration: info.duration,
+        sizeMb: Number((uploadData?.file_size || file?.size || 0) / (1024 * 1024)),
+      },
+      {
+        resolution,
+        upscaleFactor,
+        upscalerAlgorithm,
+        targetFps,
+        denoise,
+        sharpen,
+        loopOptimize,
+        reverseVideo,
+        losslessOutput,
+      }
+    );
+
+    if (!profile) return null;
+
+    const calibratedCpuMinutes = profile.baseCpuMinutes * cpuCalibration.factor;
+
+    return {
+      outputWidth: profile.outputWidth,
+      outputHeight: profile.outputHeight,
+      outputFps: profile.outputFps,
+      sizeLowMb: profile.sizeLowMb,
+      sizeHighMb: profile.sizeHighMb,
+      cpuLowMin: calibratedCpuMinutes * 0.7,
+      cpuHighMin: calibratedCpuMinutes * 1.35,
+      gpuLowMin: profile.baseGpuMinutes * 0.7,
+      gpuHighMin: profile.baseGpuMinutes * 1.35,
+    };
+  }, [
+    uploadData,
+    file,
+    resolution,
+    upscaleFactor,
+    upscalerAlgorithm,
+    targetFps,
+    denoise,
+    sharpen,
+    loopOptimize,
+    reverseVideo,
+    losslessOutput,
+    cpuCalibration.factor,
+    estimateProfile,
+  ]);
+
+  const formatSize = (mb) => {
+    if (mb >= 1024) return `${(mb / 1024).toFixed(2)} GB`;
+    return `${mb.toFixed(0)} MB`;
+  };
+
+  const formatDuration = (minutes) => {
+    if (minutes >= 60) return `${(minutes / 60).toFixed(1)} h`;
+    if (minutes < 1) return '<1 min';
+    return `${Math.round(minutes)} min`;
+  };
 
   return (
     <div className="min-h-screen grid-pattern">
@@ -489,6 +718,48 @@ export default function App() {
                     onChange={setLosslessOutput}
                   />
                 </div>
+
+                {uploadData?.video_info && estimatedOutput && (
+                  <div className="border-t border-dark-700 pt-4 rounded-lg bg-dark-800/40 p-4 space-y-3">
+                    <h3 className="text-dark-100 font-medium">Estimated Output</h3>
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div>
+                        <span className="text-dark-400">Resolution</span>
+                        <p className="text-dark-100 font-mono">
+                          {estimatedOutput.outputWidth} × {estimatedOutput.outputHeight}
+                        </p>
+                      </div>
+                      <div>
+                        <span className="text-dark-400">Frame Rate</span>
+                        <p className="text-dark-100 font-mono">{estimatedOutput.outputFps.toFixed(0)} FPS</p>
+                      </div>
+                      <div>
+                        <span className="text-dark-400">Estimated Size</span>
+                        <p className="text-dark-100 font-mono">
+                          {formatSize(estimatedOutput.sizeLowMb)} - {formatSize(estimatedOutput.sizeHighMb)}
+                        </p>
+                      </div>
+                      <div>
+                        <span className="text-dark-400">Estimated Time (CPU)</span>
+                        <p className="text-dark-100 font-mono">
+                          {formatDuration(estimatedOutput.cpuLowMin)} - {formatDuration(estimatedOutput.cpuHighMin)}
+                        </p>
+                      </div>
+                      <div className="col-span-2">
+                        <span className="text-dark-400">Estimated Time (GPU)</span>
+                        <p className="text-dark-100 font-mono">
+                          {formatDuration(estimatedOutput.gpuLowMin)} - {formatDuration(estimatedOutput.gpuHighMin)}
+                        </p>
+                      </div>
+                    </div>
+                    <p className="text-dark-500 text-xs">
+                      Estimates vary by content complexity, hardware, and selected options.
+                    </p>
+                    <p className="text-dark-500 text-xs">
+                      CPU estimate calibration: ×{cpuCalibration.factor.toFixed(2)} ({cpuCalibration.samples} sample{cpuCalibration.samples === 1 ? '' : 's'}).
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
 

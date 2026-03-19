@@ -55,7 +55,9 @@ class RealESRGANUpscaler:
         model_name: str = "realesrgan-x4plus-anime",
         models_dir: str = "./models",
         device: Optional[str] = None,
-        fp16: bool = True
+        fp16: bool = True,
+        tile: int = 200,
+        tile_pad: int = 10
     ):
         """
         Initialize Real-ESRGAN upscaler.
@@ -77,9 +79,14 @@ class RealESRGANUpscaler:
             self.device = "cuda" if torch.cuda.is_available() else "cpu"
         
         self.fp16 = fp16 and self.device == "cuda"
+        self.tile = tile
+        self.tile_pad = tile_pad
         self.upsampler = None
         
-        logger.info(f"Upscaler initialized: model={model_name}, device={self.device}, fp16={self.fp16}")
+        logger.info(
+            f"Upscaler initialized: model={model_name}, device={self.device}, "
+            f"fp16={self.fp16}, tile={self.tile}, tile_pad={self.tile_pad}"
+        )
     
     def _download_model(self, model_name: str) -> str:
         """Download model if not present."""
@@ -123,8 +130,8 @@ class RealESRGANUpscaler:
             scale=config["scale"],
             model_path=model_path,
             model=model,
-            tile=8,  # Tile size for memory efficiency
-            tile_pad=10,
+            tile=self.tile,
+            tile_pad=self.tile_pad,
             pre_pad=0,
             half=self.fp16,
             device=self.device
@@ -377,7 +384,10 @@ def create_upscaler(
     model_name: str = None,  # kept for back-compat, overridden by algorithm
     models_dir: str = "./models",
     use_gpu: bool = True,
-    require_realesrgan: bool = False
+    require_realesrgan: bool = False,
+    fp16: bool = True,
+    tile: int = 200,
+    tile_pad: int = 10
 ):
     """
     Factory: return the appropriate upscaler for the requested algorithm.
@@ -400,7 +410,14 @@ def create_upscaler(
 
     if ESRGAN_AVAILABLE:
         device = "cuda" if use_gpu and torch.cuda.is_available() else "cpu"
-        return RealESRGANUpscaler(model_name=resolved_model, models_dir=models_dir, device=device)
+        return RealESRGANUpscaler(
+            model_name=resolved_model,
+            models_dir=models_dir,
+            device=device,
+            fp16=fp16,
+            tile=tile,
+            tile_pad=tile_pad,
+        )
     else:
         if require_realesrgan:
             raise RuntimeError(

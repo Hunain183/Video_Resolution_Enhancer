@@ -22,6 +22,7 @@ from .ffmpeg_utils import (
 )
 from .upscaler import create_upscaler, FallbackUpscaler
 from .interpolator import create_interpolator, FFmpegInterpolator
+from config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -227,7 +228,10 @@ class VideoPipeline:
                     algorithm=upscaler_algorithm,
                     models_dir=self.models_dir,
                     use_gpu=True,
-                    require_realesrgan=True
+                    require_realesrgan=True,
+                    fp16=settings.ESRGAN_FP16,
+                    tile=settings.ESRGAN_TILE,
+                    tile_pad=settings.ESRGAN_TILE_PAD,
                 )
 
                 if isinstance(upscaler, FallbackUpscaler) and upscaler_algorithm in {

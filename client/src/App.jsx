@@ -131,7 +131,7 @@ export default function App() {
   // Enhancement options
   const [resolution, setResolution] = useState('original');
   const [upscaleFactor, setUpscaleFactor] = useState('2');
-  const [upscalerAlgorithm, setUpscalerAlgorithm] = useState('realesrgan-anime');
+  const [upscalerAlgorithm, setUpscalerAlgorithm] = useState('realesrgan');
   const [targetFps, setTargetFps] = useState('original');
   const [denoise, setDenoise] = useState(false);
   const [sharpen, setSharpen] = useState(false);
@@ -379,7 +379,7 @@ export default function App() {
                   <div>
                     <span className="text-dark-400">Upscaler</span>
                     <p className="text-dark-100 font-mono">
-                      {result.settings?.upscaler_algorithm || 'realesrgan-anime'}
+                      {result.settings?.upscaler_algorithm || 'realesrgan'}
                     </p>
                   </div>
                   <div>
@@ -443,12 +443,9 @@ export default function App() {
                   value={upscalerAlgorithm}
                   onChange={setUpscalerAlgorithm}
                   options={[
-                    { value: 'original', label: 'Original (No AI Upscaling)' },
-                    { value: 'realesrgan-anime', label: 'Real-ESRGAN Anime/GIF (Best for animation)' },
-                    { value: 'realesrgan-general', label: 'Real-ESRGAN General (Best for photos)' },
-                    { value: 'realesrgan-x2', label: 'Real-ESRGAN 2× (Faster AI)' },
-                    { value: 'lanczos', label: 'Lanczos (CPU Fast)' },
-                    { value: 'bicubic', label: 'Bicubic (CPU Fastest)' },
+                    { value: 'original', label: 'None' },
+                    { value: 'realesrgan', label: 'Real-ESRGAN' },
+                    { value: 'lanczos', label: 'Lanczos' },
                   ]}
                 />
 

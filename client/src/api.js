@@ -101,7 +101,7 @@ export const videoApi = {
     filePath,
     resolution = 'original',
     upscaleFactor = 2,
-    upscalerAlgorithm = 'realesrgan-anime',
+    upscalerAlgorithm = 'realesrgan',
     targetFps = 'original',
     denoise = false,
     sharpen = false,

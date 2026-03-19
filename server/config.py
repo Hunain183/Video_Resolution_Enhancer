@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     # Model paths
     ESRGAN_MODEL: str = "realesrgan-x4plus-anime"
     ESRGAN_FP16: bool = True
-    ESRGAN_TILE: int = 200
+    ESRGAN_TILE: int = 0
     ESRGAN_TILE_PAD: int = 10
     
     class Config:

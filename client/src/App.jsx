@@ -83,7 +83,7 @@ function ProgressBar({ progress, status, currentStep }) {
     <div className="space-y-3">
       <div className="flex justify-between items-center text-sm">
         <span className="text-neon-cyan font-medium">{currentStep || status}</span>
-        <span className="text-dark-300 font-mono">{progress.toFixed(1)}%</span>
+        <span className="text-dark-300 font-mono">{progress.toFixed(2)}%</span>
       </div>
       <div className="h-3 bg-dark-800 rounded-full overflow-hidden">
         <div

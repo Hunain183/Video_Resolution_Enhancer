@@ -56,7 +56,7 @@ class RealESRGANUpscaler:
         models_dir: str = "./models",
         device: Optional[str] = None,
         fp16: bool = True,
-        tile: int = 200,
+        tile: int = 0,
         tile_pad: int = 10
     ):
         """
@@ -87,6 +87,38 @@ class RealESRGANUpscaler:
             f"Upscaler initialized: model={model_name}, device={self.device}, "
             f"fp16={self.fp16}, tile={self.tile}, tile_pad={self.tile_pad}"
         )
+
+    def _enhance_with_tile_fallback(self, image_np: np.ndarray, outscale: int):
+        """
+        Run enhancement with adaptive tile fallback on CUDA OOM.
+        """
+        if self.upsampler is None:
+            raise RuntimeError("Upsampler is not loaded")
+
+        if self.device != "cuda":
+            return self.upsampler.enhance(image_np, outscale=outscale)
+
+        if self.tile > 0:
+            tile_candidates = [self.tile, max(self.tile // 2, 64), 64, 32]
+        else:
+            tile_candidates = [0, 400, 256, 200, 128, 96, 64, 32]
+
+        last_error = None
+        for tile in tile_candidates:
+            try:
+                self.upsampler.tile = int(tile)
+                return self.upsampler.enhance(image_np, outscale=outscale)
+            except RuntimeError as e:
+                if "out of memory" not in str(e).lower():
+                    raise
+                last_error = e
+                logger.warning(f"CUDA OOM with tile={tile}; retrying with smaller tile")
+                torch.cuda.empty_cache()
+
+        raise RuntimeError(
+            "Real-ESRGAN ran out of GPU memory for all tile sizes. "
+            "Try lower resolution/upscale or CPU mode."
+        ) from last_error
     
     def _download_model(self, model_name: str) -> str:
         """Download model if not present."""
@@ -162,7 +194,7 @@ class RealESRGANUpscaler:
         img_np = np.array(img)
         
         # Upscale
-        output, _ = self.upsampler.enhance(img_np, outscale=self.scale_factor)
+        output, _ = self._enhance_with_tile_fallback(img_np, self.scale_factor)
         
         # Save
         Image.fromarray(output).save(output_path, quality=95)
@@ -227,7 +259,7 @@ class RealESRGANUpscaler:
                 for _ in range(runs_needed):
                     if current_scale >= target_factor:
                         break
-                    output, _ = self.upsampler.enhance(output, outscale=model_scale)
+                    output, _ = self._enhance_with_tile_fallback(output, model_scale)
                     current_scale *= model_scale
                 
                 # If overscaled, resize down
@@ -386,7 +418,7 @@ def create_upscaler(
     use_gpu: bool = True,
     require_realesrgan: bool = False,
     fp16: bool = True,
-    tile: int = 200,
+    tile: int = 0,
     tile_pad: int = 10
 ):
     """
